@@ -63,7 +63,6 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
-  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   let timeout: any;
 
 
@@ -79,17 +78,6 @@ function App() {
   const handleStartListening = async () => {
     if (speechService.current && !isListening && !isAiProcessing) {
       try {
-        // Stop avatar speaking if it's currently talking
-        if (avatar.current && data?.sessionId) {
-          try {
-            await avatar.current.stopAvatar({ stopSessionRequest: { sessionId: data.sessionId } });
-            setIsAvatarSpeaking(false);
-          } catch (error) {
-            console.log('Avatar was not speaking or already stopped');
-            setIsAvatarSpeaking(false);
-          }
-        }
-        
         await speechService.current.startListening();
         setIsListening(true);
       } catch (error) {
@@ -106,27 +94,9 @@ function App() {
     }
   };
 
-  // Function to stop avatar speaking
-  const stopAvatarSpeaking = async () => {
-    if (avatar.current && data?.sessionId) {
-      try {
-        // Try to stop the current speaking session
-        await avatar.current.stopAvatar({ stopSessionRequest: { sessionId: data.sessionId } });
-        console.log('Avatar speaking stopped');
-        setIsAvatarSpeaking(false);
-      } catch (error) {
-        console.log('Avatar was not speaking or already stopped');
-        setIsAvatarSpeaking(false);
-      }
-    }
-  };
-
   // Function to handle speech recognition results
   const handleSpeechResult = async (transcript: string) => {
     try {
-      // Stop avatar speaking if it's currently talking
-      await stopAvatarSpeaking();
-      
       // Add user message to chat
       const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
       setChatMessages(updatedMessages);
@@ -252,9 +222,6 @@ function App() {
   // Function to process media with AI
   const processMediaWithAI = async (file: File, type: 'photo' | 'video') => {
     try {
-      // Stop avatar speaking if it's currently talking
-      await stopAvatarSpeaking();
-      
       // Set loading state
       setIsAiProcessing(true);
       
@@ -367,9 +334,6 @@ function App() {
     if (!text.trim() && attachedFiles.length === 0) return;
 
     try {
-      // Stop avatar speaking if it's currently talking
-      await stopAvatarSpeaking();
-      
       // Add user message to chat
       const userMessage = text.trim() || `[Attached ${attachedFiles.length} file(s)]`;
       const updatedMessages = [...chatMessages, { role: 'user', message: userMessage }];
@@ -433,11 +397,9 @@ function App() {
     async function speak() {
       if (avatarSpeech && data?.sessionId) {
         try {
-          setIsAvatarSpeaking(true);
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
         } catch (err: any) {
           console.error(err);
-          setIsAvatarSpeaking(false);
         }
       }
     }
@@ -489,8 +451,7 @@ function App() {
 // Avatar stop talking event handler
 const handleAvatarStopTalking = (e: any) => {
   console.log("Avatar stopped talking", e);
-  setIsAvatarSpeaking(false);
-  // Only auto-start listening if user is not already listening, not processing AI, and not actively speaking
+  // Only auto-start listening if user is not already listening and not processing AI
   if (!isListening && !isAiProcessing) {
     timeout = setTimeout(async () => {
       try {
@@ -636,10 +597,8 @@ return (
           {/* Chat Header - Fixed */}
           <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/20">
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isAvatarSpeaking ? 'bg-red-400 animate-pulse' : 'bg-green-400'}`}></div>
-              <span className="text-sm font-semibold text-white">
-                {isAvatarSpeaking ? 'Avatar Speaking...' : 'Chat Assistant'}
-              </span>
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-sm font-semibold text-white">Chat Assistant</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-1 h-1 bg-white/60 rounded-full"></div>
@@ -709,10 +668,7 @@ return (
             <span className="sm:hidden">Start</span>
           </button>
           <button
-            onClick={async () => {
-              await stopAvatarSpeaking();
-              await stop();
-            }}
+            onClick={stop}
             disabled={stopAvatarLoading}
             className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
           >
@@ -724,8 +680,8 @@ return (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
               </svg>
             )}
-            <span className="hidden sm:inline">{isAvatarSpeaking ? 'Stop Speaking' : 'Stop Avatar'}</span>
-            <span className="sm:hidden">{isAvatarSpeaking ? 'Stop' : 'Stop'}</span>
+            <span className="hidden sm:inline">Stop Avatar</span>
+            <span className="sm:hidden">Stop</span>
           </button>
         </div>
       </div>
