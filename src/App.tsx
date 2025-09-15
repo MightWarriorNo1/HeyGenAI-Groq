@@ -1,5 +1,5 @@
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
@@ -95,12 +95,34 @@ function App() {
   };
 
   // Function to handle speech recognition results
-  const handleSpeechResult = async (transcript: string) => {
+  const handleSpeechResult = useCallback(async (transcript: string) => {
     try {
-      // Add user message to chat
-      const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
-      setChatMessages(updatedMessages);
+      console.log('Processing speech result:', transcript);
       
+      // Add user message to chat
+      setChatMessages(prev => {
+        const updatedMessages = [...prev, { role: 'user', message: transcript }];
+        
+        // Process AI response asynchronously
+        processAIResponse(updatedMessages);
+        
+        return updatedMessages;
+      });
+      
+    } catch (error: any) {
+      console.error('Error processing speech result:', error);
+      setIsAiProcessing(false);
+      toast({
+        variant: "destructive",
+        title: "Uh oh! Something went wrong.",
+        description: error.message,
+      });
+    }
+  }, [toast]);
+
+  // Separate function to process AI response
+  const processAIResponse = async (messages: ChatMessageType[]) => {
+    try {
       // Set loading state
       setIsAiProcessing(true);
       
@@ -109,7 +131,7 @@ function App() {
         model: 'grok-2-latest',
         messages: [
           { role: 'system', content: 'You are iSolveUrProblems, a helpful AI assistant. Respond naturally and maintain context from the entire conversation.' },
-          ...updatedMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.message }))
+          ...messages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.message }))
         ],
         temperature: 0.7,
         max_tokens: 2000
@@ -124,7 +146,7 @@ function App() {
       // Clear loading state
       setIsAiProcessing(false);
     } catch (error: any) {
-      console.error('Error processing speech result:', error);
+      console.error('Error processing AI response:', error);
       setIsAiProcessing(false);
       toast({
         variant: "destructive",
@@ -135,7 +157,7 @@ function App() {
   };
 
   // Function to handle speech recognition errors
-  const handleSpeechError = (error: string) => {
+  const handleSpeechError = useCallback((error: string) => {
     console.error('Speech recognition error:', error);
     toast({
       variant: "destructive",
@@ -143,7 +165,7 @@ function App() {
       description: error,
     });
     // Don't automatically stop listening on error - let user manually stop if needed
-  };
+  }, [toast]);
 
   // Function to handle file uploads
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,7 +408,7 @@ function App() {
         speechService.current.stopListening();
       }
     };
-  }, []);
+  }, [handleSpeechResult, handleSpeechError]);
 
 
   // useEffect getting triggered when the avatarSpeech state is updated, basically make the avatar to talk

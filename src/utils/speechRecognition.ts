@@ -5,6 +5,7 @@ export class SpeechRecognitionService {
   private shouldContinueListening: boolean = false;
   private onResult: (text: string) => void;
   private onError: (error: string) => void;
+  private restartTimeout: NodeJS.Timeout | null = null;
 
   constructor(onResult: (text: string) => void, onError: (error: string) => void) {
     this.onResult = onResult;
@@ -23,11 +24,11 @@ export class SpeechRecognitionService {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     this.recognition = new SpeechRecognition();
 
-    // Configure recognition settings
-    this.recognition.continuous = true; // Keep listening continuously
-    this.recognition.interimResults = false; // Only return final results
-    this.recognition.lang = 'en-US'; // Set language
-    this.recognition.maxAlternatives = 1; // Only return best result
+    // Configure recognition settings for natural conversation
+    this.recognition.continuous = false; // We'll handle continuous listening manually
+    this.recognition.interimResults = true; // Get interim results for better UX
+    this.recognition.lang = 'en-US';
+    this.recognition.maxAlternatives = 1;
 
     // Set up event handlers
     this.recognition.onstart = () => {
@@ -36,33 +37,70 @@ export class SpeechRecognitionService {
     };
 
     this.recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      this.onResult(transcript);
-      // Don't set isListening = false here since we want continuous listening
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      // Process all results
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      // Only process final results
+      if (finalTranscript.trim()) {
+        console.log('Final transcript:', finalTranscript);
+        this.onResult(finalTranscript.trim());
+      }
     };
 
     this.recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       
+      // Clear any pending restart
+      if (this.restartTimeout) {
+        clearTimeout(this.restartTimeout);
+        this.restartTimeout = null;
+      }
+
+      let shouldStop = false;
       let errorMessage = event.error;
-      if (event.error === 'not-allowed') {
-        errorMessage = 'Microphone access denied. Please allow microphone access and refresh the page.';
-        this.shouldContinueListening = false; // Stop trying on permission errors
-      } else if (event.error === 'no-speech') {
-        errorMessage = 'No speech detected. Please try again.';
-        // Don't stop on no-speech errors, just continue
-      } else if (event.error === 'audio-capture') {
-        errorMessage = 'No microphone found. Please check your microphone connection.';
-        this.shouldContinueListening = false; // Stop trying on hardware errors
-      } else if (event.error === 'network') {
-        errorMessage = 'Network error. Please check your internet connection.';
-        this.shouldContinueListening = false; // Stop trying on network errors
-      } else if (event.error === 'aborted') {
-        // Don't show error for aborted (user stopped manually)
-        return;
+      
+      switch (event.error) {
+        case 'not-allowed':
+          errorMessage = 'Microphone access denied. Please allow microphone access and refresh the page.';
+          shouldStop = true;
+          break;
+        case 'no-speech':
+          // Don't show error for no-speech, just continue
+          console.log('No speech detected, continuing...');
+          this.restartListening();
+          return;
+        case 'audio-capture':
+          errorMessage = 'No microphone found. Please check your microphone connection.';
+          shouldStop = true;
+          break;
+        case 'network':
+          errorMessage = 'Network error. Please check your internet connection.';
+          shouldStop = true;
+          break;
+        case 'aborted':
+          // Don't show error for aborted (user stopped manually)
+          return;
+        default:
+          console.log('Unknown error, continuing...');
+          this.restartListening();
+          return;
       }
       
-      this.onError(errorMessage);
+      if (shouldStop) {
+        this.shouldContinueListening = false;
+        this.onError(errorMessage);
+      }
+      
       this.isListening = false;
     };
 
@@ -70,21 +108,34 @@ export class SpeechRecognitionService {
       this.isListening = false;
       console.log('Speech recognition ended');
       
-      // If we should continue listening, restart the recognition
+      // Always restart if we should continue listening
       if (this.shouldContinueListening) {
-        console.log('Restarting speech recognition...');
-        setTimeout(() => {
-          if (this.shouldContinueListening && this.recognition) {
-            try {
-              this.recognition.start();
-            } catch (error) {
-              console.error('Error restarting speech recognition:', error);
-              this.shouldContinueListening = false;
-            }
-          }
-        }, 100); // Small delay to prevent rapid restarts
+        this.restartListening();
       }
     };
+  }
+
+  private restartListening() {
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+    }
+    
+    this.restartTimeout = setTimeout(() => {
+      if (this.shouldContinueListening && this.recognition) {
+        try {
+          console.log('Restarting speech recognition...');
+          this.recognition.start();
+        } catch (error) {
+          console.error('Error restarting speech recognition:', error);
+          // Try again after a longer delay
+          this.restartTimeout = setTimeout(() => {
+            if (this.shouldContinueListening) {
+              this.restartListening();
+            }
+          }, 1000);
+        }
+      }
+    }, 100);
   }
 
   public async startListening(): Promise<void> {
@@ -110,6 +161,13 @@ export class SpeechRecognitionService {
 
   public stopListening(): void {
     this.shouldContinueListening = false;
+    
+    // Clear any pending restart
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+    
     if (this.recognition && this.isListening) {
       this.recognition.stop();
     }
