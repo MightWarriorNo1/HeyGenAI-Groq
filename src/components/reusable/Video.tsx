@@ -9,7 +9,6 @@ const Video = forwardRef<HTMLVideoElement, {}>((_, ref) => (
       ref={ref} 
       className="w-full h-full object-cover rounded-lg lg:rounded-none"
       muted={false}
-      volume={1.0}
       controls={false}
     />
   </div>
