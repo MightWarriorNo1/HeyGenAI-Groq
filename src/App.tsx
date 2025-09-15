@@ -142,7 +142,7 @@ function App() {
       title: "Speech Recognition Error",
       description: error,
     });
-    setIsListening(false);
+    // Don't automatically stop listening on error - let user manually stop if needed
   };
 
   // Function to handle file uploads
@@ -193,9 +193,6 @@ function App() {
     };
     
     setChatMessages(prev => [...prev, mediaMessage]);
-    
-    // Also add to attached files for context
-    setAttachedFiles(prev => [...prev, file]);
     
     toast({
       title: `${type === 'photo' ? 'Photo' : 'Video'} captured`,

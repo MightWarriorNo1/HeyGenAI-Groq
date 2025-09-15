@@ -23,7 +23,7 @@ export class SpeechRecognitionService {
     this.recognition = new SpeechRecognition();
 
     // Configure recognition settings
-    this.recognition.continuous = false; // Stop after first result
+    this.recognition.continuous = true; // Keep listening continuously
     this.recognition.interimResults = false; // Only return final results
     this.recognition.lang = 'en-US'; // Set language
     this.recognition.maxAlternatives = 1; // Only return best result
@@ -37,7 +37,7 @@ export class SpeechRecognitionService {
     this.recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       this.onResult(transcript);
-      this.isListening = false;
+      // Don't set isListening = false here since we want continuous listening
     };
 
     this.recognition.onerror = (event: any) => {
