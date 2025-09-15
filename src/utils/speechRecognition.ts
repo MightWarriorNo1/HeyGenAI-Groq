@@ -2,6 +2,7 @@
 export class SpeechRecognitionService {
   private recognition: any;
   private isListening: boolean = false;
+  private shouldContinueListening: boolean = false;
   private onResult: (text: string) => void;
   private onError: (error: string) => void;
 
@@ -46,12 +47,19 @@ export class SpeechRecognitionService {
       let errorMessage = event.error;
       if (event.error === 'not-allowed') {
         errorMessage = 'Microphone access denied. Please allow microphone access and refresh the page.';
+        this.shouldContinueListening = false; // Stop trying on permission errors
       } else if (event.error === 'no-speech') {
         errorMessage = 'No speech detected. Please try again.';
+        // Don't stop on no-speech errors, just continue
       } else if (event.error === 'audio-capture') {
         errorMessage = 'No microphone found. Please check your microphone connection.';
+        this.shouldContinueListening = false; // Stop trying on hardware errors
       } else if (event.error === 'network') {
         errorMessage = 'Network error. Please check your internet connection.';
+        this.shouldContinueListening = false; // Stop trying on network errors
+      } else if (event.error === 'aborted') {
+        // Don't show error for aborted (user stopped manually)
+        return;
       }
       
       this.onError(errorMessage);
@@ -61,6 +69,21 @@ export class SpeechRecognitionService {
     this.recognition.onend = () => {
       this.isListening = false;
       console.log('Speech recognition ended');
+      
+      // If we should continue listening, restart the recognition
+      if (this.shouldContinueListening) {
+        console.log('Restarting speech recognition...');
+        setTimeout(() => {
+          if (this.shouldContinueListening && this.recognition) {
+            try {
+              this.recognition.start();
+            } catch (error) {
+              console.error('Error restarting speech recognition:', error);
+              this.shouldContinueListening = false;
+            }
+          }
+        }, 100); // Small delay to prevent rapid restarts
+      }
     };
   }
 
@@ -69,9 +92,11 @@ export class SpeechRecognitionService {
       try {
         // Request microphone permission first
         await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.shouldContinueListening = true;
         this.recognition.start();
       } catch (error: any) {
         console.error('Microphone access error:', error);
+        this.shouldContinueListening = false;
         if (error.name === 'NotAllowedError') {
           this.onError('Microphone access denied. Please allow microphone access and try again.');
         } else if (error.name === 'NotFoundError') {
@@ -84,6 +109,7 @@ export class SpeechRecognitionService {
   }
 
   public stopListening(): void {
+    this.shouldContinueListening = false;
     if (this.recognition && this.isListening) {
       this.recognition.stop();
     }
