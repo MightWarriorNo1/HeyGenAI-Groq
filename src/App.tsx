@@ -1,5 +1,5 @@
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
@@ -36,6 +36,8 @@ function App() {
   const avatar = useRef<StreamingAvatarApi | null>(null);
   const speechService = useRef<SpeechRecognitionService | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showChatArea, setShowChatArea] = useState<boolean>(false);
+  const [isAvatarFullScreen, setIsAvatarFullScreen] = useState<boolean>(false);
   const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
     // {
     //   role: 'user',
@@ -59,6 +61,16 @@ function App() {
     // },
 
   ]);
+  // Control chat visibility and avatar sizing based on input or messages
+  useEffect(() => {
+    const hasInput = input.trim().length > 0;
+    const hasMessages = chatMessages.length > 0;
+    const shouldShowChat = hasInput || hasMessages;
+    setShowChatArea(shouldShowChat);
+    // Make avatar flexible: full screen when chat is hidden, split when chat shows
+    setIsAvatarFullScreen(!shouldShowChat);
+  }, [input, chatMessages.length]);
+
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
@@ -95,34 +107,12 @@ function App() {
   };
 
   // Function to handle speech recognition results
-  const handleSpeechResult = useCallback(async (transcript: string) => {
+  const handleSpeechResult = async (transcript: string) => {
     try {
-      console.log('Processing speech result:', transcript);
-      
       // Add user message to chat
-      setChatMessages(prev => {
-        const updatedMessages = [...prev, { role: 'user', message: transcript }];
-        
-        // Process AI response asynchronously
-        processAIResponse(updatedMessages);
-        
-        return updatedMessages;
-      });
+      const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
+      setChatMessages(updatedMessages);
       
-    } catch (error: any) {
-      console.error('Error processing speech result:', error);
-      setIsAiProcessing(false);
-      toast({
-        variant: "destructive",
-        title: "Uh oh! Something went wrong.",
-        description: error.message,
-      });
-    }
-  }, [toast]);
-
-  // Separate function to process AI response
-  const processAIResponse = async (messages: ChatMessageType[]) => {
-    try {
       // Set loading state
       setIsAiProcessing(true);
       
@@ -130,8 +120,8 @@ function App() {
       const aiResponse = await openai.chat.completions.create({
         model: 'grok-2-latest',
         messages: [
-          { role: 'system', content: 'You are iSolveUrProblems, a helpful AI assistant. Respond naturally and maintain context from the entire conversation.' },
-          ...messages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.message }))
+          { role: 'system', content: 'You are iSolveUrProblems, a helpful AI assistant with a humorous tone. Keep replies witty, light, and friendly while staying helpful and concise. Maintain context from the entire conversation.' },
+          ...updatedMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.message }))
         ],
         temperature: 0.7,
         max_tokens: 2000
@@ -146,7 +136,7 @@ function App() {
       // Clear loading state
       setIsAiProcessing(false);
     } catch (error: any) {
-      console.error('Error processing AI response:', error);
+      console.error('Error processing speech result:', error);
       setIsAiProcessing(false);
       toast({
         variant: "destructive",
@@ -157,15 +147,15 @@ function App() {
   };
 
   // Function to handle speech recognition errors
-  const handleSpeechError = useCallback((error: string) => {
+  const handleSpeechError = (error: string) => {
     console.error('Speech recognition error:', error);
     toast({
       variant: "destructive",
       title: "Speech Recognition Error",
       description: error,
     });
-    // Don't automatically stop listening on error - let user manually stop if needed
-  }, [toast]);
+    setIsListening(false);
+  };
 
   // Function to handle file uploads
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,6 +205,9 @@ function App() {
     };
     
     setChatMessages(prev => [...prev, mediaMessage]);
+    
+    // Also add to attached files for context
+    setAttachedFiles(prev => [...prev, file]);
     
     toast({
       title: `${type === 'photo' ? 'Photo' : 'Video'} captured`,
@@ -369,7 +362,7 @@ function App() {
       const aiResponse = await openai.chat.completions.create({
         model: 'grok-2-latest',
         messages: [
-          { role: 'system', content: 'You are iSolveUrProblems, a helpful AI assistant. Respond naturally and maintain context from the entire conversation. If the user has attached files, acknowledge them and provide relevant assistance.' },
+          { role: 'system', content: 'You are iSolveUrProblems, a helpful AI assistant with a humorous tone. Keep replies witty, light, and friendly while staying helpful and concise. Maintain context from the entire conversation. If the user has attached files, acknowledge them and provide relevant assistance.' },
           ...updatedMessages.map(msg => ({ role: msg.role as 'user' | 'assistant', content: msg.message }))
         ],
         temperature: 0.7,
@@ -408,7 +401,7 @@ function App() {
         speechService.current.stopListening();
       }
     };
-  }, [handleSpeechResult, handleSpeechError]);
+  }, []);
 
 
   // useEffect getting triggered when the avatarSpeech state is updated, basically make the avatar to talk
@@ -489,6 +482,7 @@ const handleAvatarStopTalking = (e: any) => {
 // Function to initiate the avatar
 async function grab() {
   setStartAvatarLoading(true);
+  setIsAvatarFullScreen(true);
   
   // Check if required environment variables are present
   const avatarId = import.meta.env.VITE_HEYGEN_AVATARID;
@@ -519,7 +513,7 @@ async function grab() {
       {
         newSessionRequest: {
           quality: "high",
-          avatarName: avatarId,
+          avatarName: "6",
           voice: { voiceId: voiceId }
         }
       },
@@ -601,18 +595,24 @@ return (
       <div className="fixed top-0 left-0 right-0 w-full bg-white/10 backdrop-blur-sm border-b border-white/20 z-30">
         <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
           <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white text-center">iSolveUrProblems – beta</h1>
+          <p className="text-[11px] sm:text-xs text-white/80 text-center mt-1">Everything - except Murder</p>
         </div>
       </div>
 
       {/* Main Content Area - Responsive layout for mobile and desktop */}
       <div className="flex flex-col lg:flex-row w-full h-screen pt-16 sm:pt-20">
-        {/* Video Container - Full screen on mobile, side panel on desktop */}
-        <div className="relative w-full lg:w-1/2 h-1/2 lg:h-full">
-          <Video ref={mediaStream} />
+        {/* Video Container - Full screen on mobile until chat starts, then fill remaining */}
+        <div className={`relative w-full lg:w-1/2 ${isAvatarFullScreen ? 'h-full' : (showChatArea ? 'flex-1 min-h-0' : 'h-1/2')} lg:h-full`}>
+          <div className={`${isCameraOpen ? 'opacity-20 blur-[1px] transition-opacity' : ''}`}>
+            <Video ref={mediaStream} />
+          </div>
+          {isCameraOpen && (
+            <div className="absolute inset-0 pointer-events-none" />
+          )}
         </div>
         
-        {/* Chat Container - Overlay on mobile, side panel on desktop */}
-        <div className="lg:w-1/2 h-1/2 lg:h-full bg-white/95 backdrop-blur-md border-l border-white/20">
+        {/* Chat Container - Bottom on mobile when active, side panel on desktop */}
+        <div className={`${(isAvatarFullScreen || !showChatArea) ? 'hidden' : 'block'} lg:block lg:w-1/2 ${showChatArea ? 'h-[45%]' : 'h-1/2'} lg:h-full bg-white/95 backdrop-blur-md border-l border-white/20`}>
           {/* Chat Header - Fixed */}
           <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/20">
             <div className="flex items-center gap-2">
@@ -653,7 +653,7 @@ return (
                   </div>
                 </ScrollableFeed>
               ) : (
-                <div className="p-6 overflow-y-auto flex flex-col justify-center items-center w-full h-full bg-gray-50/30">
+                <div className="p-6 overflow-y-auto flex flex-col items-center w-full h-full bg-gray-50/30">
                   <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center mb-4">
                     <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -815,6 +815,41 @@ return (
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCameraCapture}
+        onVisionSnapshot={async (dataUrl: string) => {
+          try {
+            // Provide quick, friendly, real-time analysis using xAI Vision
+            setIsAiProcessing(true);
+
+            const conversationHistory = chatMessages.map(msg => ({
+              role: msg.role as 'user' | 'assistant',
+              content: msg.media ? `${msg.message} [${msg.media.type.toUpperCase()}: ${msg.media.file.name}]` : msg.message
+            }));
+
+            const aiResponse = await openai.chat.completions.create({
+              model: 'grok-2-vision',
+              messages: [
+                ...conversationHistory,
+                {
+                  role: 'user' as const,
+                  content: [
+                    { type: 'text' as const, text: 'Live camera snapshot. Briefly explain what you see and suggest helpful next steps.' },
+                    { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'low' as const } }
+                  ]
+                }
+              ],
+              temperature: 0.6,
+              max_tokens: 500
+            } as any);
+
+            const aiMessage = aiResponse.choices[0].message.content || '';
+            setChatMessages(prev => [...prev, { role: 'assistant', message: aiMessage }]);
+            setAvatarSpeech(aiMessage);
+          } catch (err) {
+            console.warn('Vision snapshot processing failed', err);
+          } finally {
+            setIsAiProcessing(false);
+          }
+        }}
       />
     </div>
   </>
