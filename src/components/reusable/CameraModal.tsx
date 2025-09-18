@@ -1,24 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
 import { FaCamera, FaVideo, FaStop, FaTimes, FaDownload, FaEye } from 'react-icons/fa';
+import { Loader2 } from 'lucide-react';
 
 interface CameraModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCapture: (file: File, type: 'photo' | 'video') => void;
-  onVisionSnapshot?: (dataUrl: string) => void;
+  onVisionAnalysis?: (imageDataUrl: string) => void;
 }
 
-const CameraModal = ({ isOpen, onClose, onCapture, onVisionSnapshot }: CameraModalProps) => {
+const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraModalProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [capturedMedia, setCapturedMedia] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<'photo' | 'video' | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [isVisionProcessing, setIsVisionProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
-  const [isVisionLive, setIsVisionLive] = useState(false);
-  const visionIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -51,7 +51,6 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionSnapshot }: CameraMod
     setIsRecording(false);
     setCapturedMedia(null);
     setMediaType(null);
-    stopVision();
   };
 
   const capturePhoto = () => {
@@ -128,40 +127,31 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionSnapshot }: CameraMod
     }
   };
 
-  const takeSnapshotDataUrl = (): string | null => {
-    if (!videoRef.current || !canvasRef.current) return null;
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    const context = canvas.getContext('2d');
-    if (!context) return null;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0);
+  const handleVisionAnalysis = async () => {
+    if (!videoRef.current || !canvasRef.current || !onVisionAnalysis) return;
+    
+    setIsVisionProcessing(true);
+    
     try {
-      return canvas.toDataURL('image/jpeg', 0.6);
-    } catch {
-      return null;
-    }
-  };
-
-  const startVision = () => {
-    if (isVisionLive) return;
-    setIsVisionLive(true);
-    // Send an immediate snapshot
-    const first = takeSnapshotDataUrl();
-    if (first && onVisionSnapshot) onVisionSnapshot(first);
-    // Then send snapshots periodically
-    visionIntervalRef.current = window.setInterval(() => {
-      const dataUrl = takeSnapshotDataUrl();
-      if (dataUrl && onVisionSnapshot) onVisionSnapshot(dataUrl);
-    }, 2000);
-  };
-
-  const stopVision = () => {
-    setIsVisionLive(false);
-    if (visionIntervalRef.current) {
-      window.clearInterval(visionIntervalRef.current);
-      visionIntervalRef.current = null;
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (context) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0);
+        
+        // Convert canvas to data URL
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Call the vision analysis function
+        await onVisionAnalysis(imageDataUrl);
+      }
+    } catch (error) {
+      console.error('Error processing vision analysis:', error);
+    } finally {
+      setIsVisionProcessing(false);
     }
   };
 
@@ -212,17 +202,24 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionSnapshot }: CameraMod
                   {isRecording ? <FaStop size={18} className="sm:w-5 sm:h-5" /> : <FaVideo size={18} className="text-gray-700 sm:w-5 sm:h-5" />}
                 </button>
 
-                <button
-                  onClick={isVisionLive ? stopVision : startVision}
-                  className={`p-2.5 sm:p-3 rounded-full shadow-lg ${
-                    isVisionLive 
-                      ? 'bg-green-500 hover:bg-green-600 text-white' 
-                      : 'bg-white hover:bg-gray-100'
-                  }`}
-                  title={isVisionLive ? 'Stop Vision' : 'Start Vision'}
-                >
-                  <FaEye size={18} className={`${isVisionLive ? '' : 'text-gray-700'} sm:w-5 sm:h-5`} />
-                </button>
+                {onVisionAnalysis && (
+                  <button
+                    onClick={handleVisionAnalysis}
+                    disabled={isVisionProcessing}
+                    className={`p-2.5 sm:p-3 rounded-full shadow-lg transition-all duration-200 ${
+                      isVisionProcessing 
+                        ? 'bg-purple-400 cursor-not-allowed' 
+                        : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white'
+                    }`}
+                    title={isVisionProcessing ? 'Analyzing...' : 'Analyze with AI Vision'}
+                  >
+                    {isVisionProcessing ? (
+                      <Loader2 size={18} className="animate-spin sm:w-5 sm:h-5" />
+                    ) : (
+                      <FaEye size={18} className="sm:w-5 sm:h-5" />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           ) : (

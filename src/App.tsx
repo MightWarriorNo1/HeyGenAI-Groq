@@ -74,6 +74,7 @@ function App() {
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
+  const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
   let timeout: any;
 
@@ -229,6 +230,72 @@ function App() {
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = error => reject(error);
     });
+  };
+
+  // Function to handle vision analysis from camera
+  const handleVisionAnalysis = async (imageDataUrl: string) => {
+    try {
+      // Set loading state
+      setIsAiProcessing(true);
+      
+      // Add user message to chat
+      const updatedMessages = [...chatMessages, { 
+        role: 'user', 
+        message: 'I want to analyze what I see through the camera' 
+      }];
+      setChatMessages(updatedMessages);
+      
+      // Build conversation history for vision
+      const conversationHistory = chatMessages.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.media ? `${msg.message} [${msg.media.type.toUpperCase()}: ${msg.media.file.name}]` : msg.message
+      }));
+      
+      const messages = [
+        ...conversationHistory,
+        {
+          role: 'user' as const,
+          content: [
+            { 
+              type: 'text' as const, 
+              text: 'I want to analyze what I see through the camera. Please provide a detailed analysis of the image and suggest solutions or insights based on what you observe.' 
+            },
+            { 
+              type: 'image_url' as const, 
+              image_url: { url: imageDataUrl, detail: 'high' as const } 
+            }
+          ]
+        }
+      ];
+
+      const aiResponse = await openai.chat.completions.create({
+        model: 'grok-2-vision',
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 2000
+      } as any);
+      
+      const aiMessage = aiResponse.choices[0].message.content || '';
+      // Add AI response to chat
+      setChatMessages(prev => [...prev, { role: 'assistant', message: aiMessage }]);
+      // Set avatar speech to AI message so avatar can speak it
+      setAvatarSpeech(aiMessage);
+      
+      // Clear loading state
+      setIsAiProcessing(false);
+      
+      // Close camera modal after analysis
+      setIsCameraOpen(false);
+      
+    } catch (error: any) {
+      console.error('Error processing vision analysis:', error);
+      setIsAiProcessing(false);
+      toast({
+        variant: "destructive",
+        title: "Vision Analysis Error",
+        description: error.message || 'Failed to analyze the image. Please try again.',
+      });
+    }
   };
 
   // Function to process media with AI
@@ -513,7 +580,7 @@ async function grab() {
       {
         newSessionRequest: {
           quality: "high",
-          avatarName: "6",
+          avatarName: avatarId,
           voice: { voiceId: voiceId }
         }
       },
@@ -522,6 +589,7 @@ async function grab() {
     setData(res);
     setStream(avatar.current!.mediaStream);
     setStartAvatarLoading(false);
+    setIsAvatarRunning(true);
 
   } catch (error: any) {
     console.error('Error starting avatar:', error);
@@ -559,6 +627,7 @@ async function stop() {
     await avatar.current?.stopAvatar({ stopSessionRequest: { sessionId: data?.sessionId } });
     // handleStopSpeaking();
     setStopAvatarLoading(false);
+    setIsAvatarRunning(false);
     avatar.current = null;
   } catch (error: any) {
     setStopAvatarLoading(false);
@@ -603,12 +672,7 @@ return (
       <div className="flex flex-col lg:flex-row w-full h-screen pt-16 sm:pt-20">
         {/* Video Container - Full screen on mobile until chat starts, then fill remaining */}
         <div className={`relative w-full lg:w-1/2 ${isAvatarFullScreen ? 'h-full' : (showChatArea ? 'flex-1 min-h-0' : 'h-1/2')} lg:h-full`}>
-          <div className={`${isCameraOpen ? 'opacity-20 blur-[1px] transition-opacity' : ''}`}>
-            <Video ref={mediaStream} />
-          </div>
-          {isCameraOpen && (
-            <div className="absolute inset-0 pointer-events-none" />
-          )}
+          <Video ref={mediaStream} className={isCameraOpen ? 'opacity-20 blur-sm transition-all duration-300' : 'opacity-100 transition-all duration-300'} />
         </div>
         
         {/* Chat Container - Bottom on mobile when active, side panel on desktop */}
@@ -669,41 +733,43 @@ return (
       </div>
 
       {/* Avatar Control Buttons - Positioned above input bar */}
-      <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
-        <div className="flex gap-2 sm:gap-3">
-          <button
-            onClick={grab}
-            disabled={startAvatarLoading}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
-          >
-            {startAvatarLoading ? (
-              <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-            ) : (
-              <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            )}
-            <span className="hidden sm:inline">Start Avatar</span>
-            <span className="sm:hidden">Start</span>
-          </button>
-          <button
-            onClick={stop}
-            disabled={stopAvatarLoading}
-            className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
-          >
-            {stopAvatarLoading ? (
-              <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-            ) : (
-              <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
-              </svg>
-            )}
-            <span className="hidden sm:inline">Stop Avatar</span>
-            <span className="sm:hidden">Stop</span>
-          </button>
+      {!isAvatarRunning && (
+        <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
+          <div className="flex gap-2 sm:gap-3">
+            <button
+              onClick={grab}
+              disabled={startAvatarLoading}
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
+            >
+              {startAvatarLoading ? (
+                <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+              ) : (
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              <span className="hidden sm:inline">Start Avatar</span>
+              <span className="sm:hidden">Start</span>
+            </button>
+            <button
+              onClick={stop}
+              disabled={stopAvatarLoading}
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
+            >
+              {stopAvatarLoading ? (
+                <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+              ) : (
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+                </svg>
+              )}
+              <span className="hidden sm:inline">Stop Avatar</span>
+              <span className="sm:hidden">Stop</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Attached Files Display - Responsive positioning */}
       {attachedFiles.length > 0 && (
@@ -815,41 +881,7 @@ return (
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCameraCapture}
-        onVisionSnapshot={async (dataUrl: string) => {
-          try {
-            // Provide quick, friendly, real-time analysis using xAI Vision
-            setIsAiProcessing(true);
-
-            const conversationHistory = chatMessages.map(msg => ({
-              role: msg.role as 'user' | 'assistant',
-              content: msg.media ? `${msg.message} [${msg.media.type.toUpperCase()}: ${msg.media.file.name}]` : msg.message
-            }));
-
-            const aiResponse = await openai.chat.completions.create({
-              model: 'grok-2-vision',
-              messages: [
-                ...conversationHistory,
-                {
-                  role: 'user' as const,
-                  content: [
-                    { type: 'text' as const, text: 'Live camera snapshot. Briefly explain what you see and suggest helpful next steps.' },
-                    { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'low' as const } }
-                  ]
-                }
-              ],
-              temperature: 0.6,
-              max_tokens: 500
-            } as any);
-
-            const aiMessage = aiResponse.choices[0].message.content || '';
-            setChatMessages(prev => [...prev, { role: 'assistant', message: aiMessage }]);
-            setAvatarSpeech(aiMessage);
-          } catch (err) {
-            console.warn('Vision snapshot processing failed', err);
-          } finally {
-            setIsAiProcessing(false);
-          }
-        }}
+        onVisionAnalysis={handleVisionAnalysis}
       />
     </div>
   </>
