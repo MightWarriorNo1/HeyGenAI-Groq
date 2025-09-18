@@ -9,7 +9,7 @@ import CameraModal from './components/reusable/CameraModal';
 import ScrollableFeed from 'react-scrollable-feed';
 import { Toaster } from "@/components/ui/toaster";
 import { Loader2, Send } from 'lucide-react';
-import { FaMicrophone, FaMicrophoneSlash } from 'react-icons/fa';
+import { FaMicrophone, FaMicrophoneSlash, FaEye } from 'react-icons/fa';
 import { SpeechRecognitionService } from './utils/speechRecognition';
 
 interface ChatMessageType  {
@@ -32,6 +32,7 @@ function App() {
   const [data, setData] = useState<NewSessionData>();
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
+  const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
   const mediaStream = useRef<HTMLVideoElement>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
   const speechService = useRef<SpeechRecognitionService | null>(null);
@@ -61,15 +62,26 @@ function App() {
     // },
 
   ]);
+  // Function to exit vision mode
+  const exitVisionMode = () => {
+    setIsVisionMode(false);
+  };
+
   // Control chat visibility and avatar sizing based on input or messages
   useEffect(() => {
     const hasInput = input.trim().length > 0;
     const hasMessages = chatMessages.length > 0;
     const shouldShowChat = hasInput || hasMessages;
-    setShowChatArea(shouldShowChat);
-    // Make avatar flexible: full screen when chat is hidden, split when chat shows
-    setIsAvatarFullScreen(!shouldShowChat);
-  }, [input, chatMessages.length]);
+    
+    // In vision mode, hide chat and make avatar full screen
+    if (isVisionMode) {
+      setShowChatArea(false);
+      setIsAvatarFullScreen(true);
+    } else {
+      setShowChatArea(shouldShowChat);
+      setIsAvatarFullScreen(!shouldShowChat);
+    }
+  }, [input, chatMessages.length, isVisionMode]);
 
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
@@ -235,6 +247,10 @@ function App() {
   // Function to handle vision analysis from camera
   const handleVisionAnalysis = async (imageDataUrl: string) => {
     try {
+      // Enter vision mode
+      setIsVisionMode(true);
+      setIsCameraOpen(false); // Close modal but keep camera stream
+      
       // Set loading state
       setIsAiProcessing(true);
       
@@ -284,12 +300,10 @@ function App() {
       // Clear loading state
       setIsAiProcessing(false);
       
-      // Close camera modal after analysis
-      setIsCameraOpen(false);
-      
     } catch (error: any) {
       console.error('Error processing vision analysis:', error);
       setIsAiProcessing(false);
+      setIsVisionMode(false); // Exit vision mode on error
       toast({
         variant: "destructive",
         title: "Vision Analysis Error",
@@ -875,6 +889,64 @@ return (
           </div>
         </div>
       </div>
+
+      {/* Vision Mode Camera - Right corner when in vision mode */}
+      {isVisionMode && (
+        <div className="fixed top-20 right-4 w-64 h-48 z-40 bg-black rounded-lg overflow-hidden shadow-2xl border-2 border-purple-500">
+          <video
+            ref={mediaStream}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover"
+            muted={false}
+            controls={false}
+          />
+          <div className="absolute top-2 right-2">
+            <button
+              onClick={exitVisionMode}
+              className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-full shadow-lg transition-all duration-200"
+              title="Exit Vision Mode"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2">
+            <button
+              onClick={() => {
+                // Trigger another vision analysis
+                if (mediaStream.current) {
+                  const canvas = document.createElement('canvas');
+                  const video = mediaStream.current;
+                  const context = canvas.getContext('2d');
+                  
+                  if (context) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0);
+                    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    handleVisionAnalysis(imageDataUrl);
+                  }
+                }
+              }}
+              disabled={isAiProcessing}
+              className={`p-2 rounded-full shadow-lg transition-all duration-200 ${
+                isAiProcessing 
+                  ? 'bg-purple-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white'
+              }`}
+              title={isAiProcessing ? 'Analyzing...' : 'Analyze Again'}
+            >
+              {isAiProcessing ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <FaEye size={16} />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Camera Modal */}
       <CameraModal
