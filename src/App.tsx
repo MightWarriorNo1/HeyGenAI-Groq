@@ -10,7 +10,7 @@ import CameraModal from './components/reusable/CameraModal';
 import ScrollableFeed from 'react-scrollable-feed';
 import { Toaster } from "@/components/ui/toaster";
 import { Loader2, Send } from 'lucide-react';
-import { FaMicrophone, FaMicrophoneSlash, FaEye } from 'react-icons/fa';
+import { FaMicrophone, FaMicrophoneSlash } from 'react-icons/fa';
 import { SpeechRecognitionService } from './utils/speechRecognition';
 
 interface ChatMessageType {
