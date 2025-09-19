@@ -29,17 +29,37 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraMod
   }, [isOpen]);
 
   const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: true
-      });
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+    // Try progressively less specific constraints, and avoid requesting audio initially
+    const constraintAttempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { ideal: 'environment' } }, audio: false },
+      { video: { facingMode: { ideal: 'user' } }, audio: false },
+      { video: true, audio: false }
+    ];
+
+    let mediaStream: MediaStream | null = null;
+    let lastError: unknown = null;
+
+    for (const constraints of constraintAttempts) {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
+      } catch (err) {
+        lastError = err;
       }
-    } catch (error) {
-      console.error('Error accessing camera:', error);
+    }
+
+    if (!mediaStream) {
+      console.error('Error accessing camera:', lastError);
+      return;
+    }
+
+    setStream(mediaStream);
+    if (videoRef.current) {
+      videoRef.current.srcObject = mediaStream;
+      // Ensure playback starts on some browsers
+      videoRef.current.onloadedmetadata = () => {
+        try { videoRef.current && videoRef.current.play(); } catch {}
+      };
     }
   };
 
@@ -77,11 +97,33 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraMod
     }
   };
 
-  const startVideoRecording = () => {
+  const startVideoRecording = async () => {
     if (stream) {
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9'
-      });
+      // Add audio track only when recording starts, if not already present
+      const hasAudio = stream.getAudioTracks().length > 0;
+      if (!hasAudio) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const audioTrack = audioStream.getAudioTracks()[0];
+          if (audioTrack) {
+            stream.addTrack(audioTrack);
+          }
+        } catch (err) {
+          // If audio is not available, continue with video-only recording
+          console.warn('Audio not available for recording:', err);
+        }
+      }
+
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+      } catch {
+        try {
+          mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+        } catch {
+          mediaRecorder = new MediaRecorder(stream);
+        }
+      }
       
       mediaRecorderRef.current = mediaRecorder;
       recordedChunksRef.current = [];
