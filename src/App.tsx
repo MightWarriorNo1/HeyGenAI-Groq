@@ -1,6 +1,7 @@
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
+import { ChevronDown } from "lucide-react";
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
@@ -34,11 +35,16 @@ function App() {
   const [isCameraOpen, setIsCameraOpen] = useState<boolean>(false);
   const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
   const mediaStream = useRef<HTMLVideoElement>(null);
+  const visionVideoRef = useRef<HTMLVideoElement>(null);
+  const [visionCameraStream, setVisionCameraStream] = useState<MediaStream | null>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
   const speechService = useRef<SpeechRecognitionService | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [showChatArea, setShowChatArea] = useState<boolean>(false);
   const [isAvatarFullScreen, setIsAvatarFullScreen] = useState<boolean>(false);
+  const [isChatBarVisible, setIsChatBarVisible] = useState<boolean>(false);
+  const displayName = (import.meta.env as any).VITE_AVATAR_DISPLAY_NAME || 'Assistant';
   const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
     // {
     //   role: 'user',
@@ -65,6 +71,11 @@ function App() {
   // Function to exit vision mode
   const exitVisionMode = () => {
     setIsVisionMode(false);
+    // do not stop avatar; just remove overlay and release camera if it was owned by modal
+    if (visionCameraStream) {
+      visionCameraStream.getTracks().forEach(t => t.stop());
+      setVisionCameraStream(null);
+    }
   };
 
   // Control chat visibility and avatar sizing based on input or messages
@@ -312,6 +323,11 @@ function App() {
     }
   };
 
+  // Receive live camera stream from CameraModal when vision starts
+  const handleVisionStart = (cameraStream: MediaStream) => {
+    setVisionCameraStream(cameraStream);
+  };
+
   // Function to process media with AI
   const processMediaWithAI = async (file: File, type: 'photo' | 'video') => {
     try {
@@ -500,6 +516,16 @@ function App() {
     speak();
   }, [avatarSpeech, data?.sessionId]);
 
+  // Bind the vision camera stream to the small overlay video when present
+  useEffect(() => {
+    if (visionVideoRef.current && visionCameraStream) {
+      visionVideoRef.current.srcObject = visionCameraStream;
+      visionVideoRef.current.onloadedmetadata = () => {
+        try { visionVideoRef.current && visionVideoRef.current.play(); } catch {}
+      };
+    }
+  }, [visionCameraStream]);
+
 
   // useEffect called when the component mounts, to fetch the accessToken and creates the new instance of StreamingAvatarApi
   useEffect(() => {
@@ -673,12 +699,12 @@ useEffect(() => {
 return (
   <>
     <Toaster />
-    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-purple-800">
+    <div className="min-h-screen bg-black">
       {/* Header - Fixed at top, mobile responsive */}
       <div className="fixed top-0 left-0 right-0 w-full bg-white/10 backdrop-blur-sm border-b border-white/20 z-30">
         <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
-          <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white text-center">iSolveUrProblems – beta</h1>
-          <p className="text-[11px] sm:text-xs text-white/80 text-center mt-1">Everything - except Murder</p>
+          <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white text-center" style={{fontFamily: 'Bell MT, serif'}}>iSolveUrProblems – beta</h1>
+          <p className="text-[11px] sm:text-xs text-white/80 text-center mt-0.5" style={{fontFamily: 'Bell MT, serif'}}>Everything - except Murder</p>
         </div>
       </div>
 
@@ -687,6 +713,31 @@ return (
         {/* Video Container - Full screen on mobile until chat starts, then fill remaining */}
         <div className={`relative w-full lg:w-1/2 ${isAvatarFullScreen ? 'h-full' : (showChatArea ? 'flex-1 min-h-0' : 'h-1/2')} lg:h-full`}>
           <Video ref={mediaStream} className={isCameraOpen ? 'opacity-20 blur-sm transition-all duration-300' : 'opacity-100 transition-all duration-300'} />
+          {/* Name overlay */}
+          {isAvatarRunning && (
+            <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-20">
+              <div className="px-4 py-2 rounded-full bg-black/40 text-white text-sm sm:text-base font-semibold shadow-lg backdrop-blur-md border border-white/20">
+                {displayName}
+              </div>
+            </div>
+          )}
+          {/* Chat now CTA when not chatting */}
+          {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !isChatBarVisible) && (
+            <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
+              <button
+                onClick={() => {
+                  setIsChatBarVisible(true);
+                  setTimeout(() => {
+                    inputRef.current?.focus();
+                    inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                  }, 0);
+                }}
+                className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200"
+              >
+                Chat now
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Chat Container - Bottom on mobile when active, side panel on desktop */}
@@ -812,9 +863,10 @@ return (
       )}
 
       {/* Chat Bar - Responsive positioning */}
-      <div className='fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-0 bg-white/95 backdrop-blur-md border-t border-white/30 p-3 sm:p-4 z-20 shadow-2xl'>
-        <div className="container mx-auto lg:mx-0 max-w-2xl lg:max-w-none">
-          <div className="flex items-center gap-2 sm:gap-3">
+      {isChatBarVisible && (
+        <div className={`fixed bottom-0 ${ (isAvatarFullScreen || !showChatArea) ? 'left-0 right-0' : 'left-0 right-0 lg:left-1/2 lg:right-0' } bg-white/95 backdrop-blur-md border-t border-white/30 p-3 sm:p-4 z-20 shadow-2xl relative`}>
+          <div className="container mx-auto lg:mx-0 max-w-2xl lg:max-w-none">
+            <div className="flex items-center gap-2 sm:gap-3">
             {/* Paper Clip Button */}
             <button 
               onClick={() => fileInputRef.current?.click()}
@@ -849,29 +901,44 @@ return (
             </button>
 
             {/* Input Bar */}
-            <div className="flex-1 relative min-w-0">
-              <input
-                type="text"
+            <div className="flex-1 min-w-0">
+              <textarea
+                ref={inputRef}
                 placeholder={isAiProcessing ? "AI is thinking..." : "Type your message..."}
-                className="w-full px-4 sm:px-5 py-3 sm:py-4 pr-12 sm:pr-14 bg-white/90 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base shadow-sm hover:shadow-md transition-all duration-200"
+                className="w-full px-4 sm:px-5 py-3 sm:py-4 bg-white/90 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base shadow-sm hover:shadow-md transition-all duration-200 resize-none min-h-[48px] max-h-32 overflow-y-auto"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter' && !isAiProcessing) {
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !isAiProcessing) {
+                    e.preventDefault();
                     handleTextSubmit(input);
                   }
                 }}
                 disabled={isAiProcessing}
+                rows={1}
+                style={{
+                  height: 'auto',
+                  minHeight: '48px',
+                  maxHeight: '128px'
+                }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 128) + 'px';
+                }}
               />
-              {/* Send Button */}
+            </div>
+
+            {/* Send Button - Outside input bar */}
+            {input.trim() && (
               <button
                 onClick={() => handleTextSubmit(input)}
                 disabled={isAiProcessing || !input.trim()}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-300 disabled:to-gray-400 text-white rounded-xl transition-all duration-200 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+                className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-300 disabled:to-gray-400 text-white rounded-xl transition-all duration-200 disabled:cursor-not-allowed shadow-sm hover:shadow-md ml-2"
               >
                 <Send className="w-4 h-4" />
               </button>
-            </div>
+            )}
 
             {/* Mic Button */}
             <button
@@ -886,15 +953,28 @@ return (
             >
               {isListening ? <FaMicrophoneSlash size={16} className="sm:w-5 sm:h-5" /> : <FaMicrophone size={16} className="sm:w-5 sm:h-5" />}
             </button>
+
+            {/* spacer to keep layout tidy; the hide button is absolutely positioned */}
+            <div className="ml-auto" />
           </div>
         </div>
-      </div>
+          {/* Hide button - far right corner, smaller than other controls */}
+          <button
+            onClick={() => setIsChatBarVisible(false)}
+            className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 p-1 sm:p-1.5 rounded-full transition-all duration-200 bg-gradient-to-br from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-700 shadow-sm hover:shadow-md"
+            title="Hide chat bar"
+            aria-label="Hide chat bar"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Vision Mode Camera - Right corner when in vision mode */}
       {isVisionMode && (
-        <div className="fixed top-20 right-4 w-64 h-48 z-40 bg-black rounded-lg overflow-hidden shadow-2xl border-2 border-purple-500">
+        <div className="fixed top-20 right-4 w-32 h-40 z-40 bg-black rounded-lg overflow-hidden shadow-2xl border-2 border-purple-500">
           <video
-            ref={mediaStream}
+            ref={visionVideoRef}
             autoPlay
             playsInline
             className="w-full h-full object-cover"
@@ -954,6 +1034,7 @@ return (
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCameraCapture}
         onVisionAnalysis={handleVisionAnalysis}
+        onVisionStart={handleVisionStart}
       />
     </div>
   </>

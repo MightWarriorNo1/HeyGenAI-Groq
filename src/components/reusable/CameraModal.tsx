@@ -7,9 +7,10 @@ interface CameraModalProps {
   onClose: () => void;
   onCapture: (file: File, type: 'photo' | 'video') => void;
   onVisionAnalysis?: (imageDataUrl: string) => void;
+  onVisionStart?: (cameraStream: MediaStream) => void;
 }
 
-const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraModalProps) => {
+const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis, onVisionStart }: CameraModalProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [capturedMedia, setCapturedMedia] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<'photo' | 'video' | null>(null);
@@ -175,6 +176,10 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraMod
     setIsVisionProcessing(true);
     
     try {
+      // inform parent about live camera stream for vision overlay
+      if (onVisionStart && stream) {
+        onVisionStart(stream);
+      }
       const canvas = canvasRef.current;
       const video = videoRef.current;
       const context = canvas.getContext('2d');
