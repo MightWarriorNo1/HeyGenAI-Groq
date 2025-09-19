@@ -42,8 +42,14 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                     {
                         role ==='assistant' && (
                         <Avatar className='mr-1 sm:mr-2 w-6 h-6 sm:w-8 sm:h-8'>
-                            <AvatarImage src="https://github.com/shadcn.png" />
-                            <AvatarFallback>CN</AvatarFallback>
+                            <AvatarImage 
+                                src="https://github.com/shadcn.png" 
+                                alt="Assistant Avatar"
+                                onError={(e) => {
+                                    console.log('Avatar image failed to load, showing fallback');
+                                }}
+                            />
+                            <AvatarFallback>AI</AvatarFallback>
                         </Avatar>
                         )
                     }
@@ -55,8 +61,14 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                     {
                         role ==='user' && (
                         <Avatar className='ml-1 sm:ml-2 w-6 h-6 sm:w-8 sm:h-8'>
-                            <AvatarImage src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" />
-                            <AvatarFallback>CN</AvatarFallback>
+                            <AvatarImage 
+                                src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
+                                alt="User Avatar"
+                                onError={(e) => {
+                                    console.log('User avatar image failed to load, showing fallback');
+                                }}
+                            />
+                            <AvatarFallback>U</AvatarFallback>
                         </Avatar>
                         )
                     }

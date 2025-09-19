@@ -32,3 +32,27 @@ html, body {
 .box-shadow {
   box-shadow: rgba(0, 0, 0, 0.1) 2px 2px 10px 2px inset
 }
+
+/* iOS Safari fixes for avatar images */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari specific styles */
+  img {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000;
+    perspective: 1000;
+  }
+  
+  /* Fix for rounded images on iOS */
+  [data-radix-avatar-image] {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000;
+    perspective: 1000;
+    -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+  }
+}

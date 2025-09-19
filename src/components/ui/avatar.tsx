@@ -13,6 +13,12 @@ const Avatar = React.forwardRef<
       "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
       className
     )}
+    style={{
+      WebkitTransform: 'translateZ(0)',
+      transform: 'translateZ(0)',
+      WebkitBackfaceVisibility: 'hidden',
+      backfaceVisibility: 'hidden'
+    }}
     {...props}
   />
 ))
@@ -24,7 +30,15 @@ const AvatarImage = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AvatarPrimitive.Image
     ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
+    className={cn("aspect-square h-full w-full object-cover", className)}
+    style={{
+      WebkitTransform: 'translateZ(0)',
+      transform: 'translateZ(0)',
+      WebkitBackfaceVisibility: 'hidden',
+      backfaceVisibility: 'hidden',
+      WebkitPerspective: '1000',
+      perspective: '1000'
+    }}
     {...props}
   />
 ))
