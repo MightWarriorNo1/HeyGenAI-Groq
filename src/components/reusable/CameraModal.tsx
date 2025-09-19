@@ -176,9 +176,11 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis, onVisionSta
     setIsVisionProcessing(true);
     
     try {
-      // inform parent about live camera stream for vision overlay
+      // Inform parent about live camera stream for vision overlay.
+      // Clone tracks so closing the modal doesn't stop parent's preview.
       if (onVisionStart && stream) {
-        onVisionStart(stream);
+        const cloned = new MediaStream(stream.getTracks().map((t) => t.clone()));
+        onVisionStart(cloned);
       }
       const canvas = canvasRef.current;
       const video = videoRef.current;

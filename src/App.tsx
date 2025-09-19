@@ -569,12 +569,21 @@ function App() {
     if (!visionVideoRef.current) return null;
     const video = visionVideoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+    // Ensure a safe minimum pixel count to satisfy xAI Vision
+    const MIN_PIXELS = 1024; // safety margin > 512
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const pixels = vw * vh;
+    const scale = pixels < MIN_PIXELS ? Math.sqrt(MIN_PIXELS / Math.max(pixels, 1)) : 1;
+    const cw = Math.max(2, Math.floor(vw * scale));
+    const ch = Math.max(2, Math.floor(vh * scale));
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = cw;
+    canvas.height = ch;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(video, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(video, 0, 0, cw, ch);
     return canvas.toDataURL('image/jpeg', quality);
   }
 
@@ -1093,7 +1102,7 @@ function App() {
               autoPlay
               playsInline
               className="w-full h-full object-cover"
-              muted={false}
+              muted
               controls={false}
             />
             <div className="absolute top-2 right-2">
