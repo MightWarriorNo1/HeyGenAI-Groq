@@ -45,7 +45,7 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                             <AvatarImage 
                                 src="https://github.com/shadcn.png" 
                                 alt="Assistant Avatar"
-                                onError={(e) => {
+                                onError={() => {
                                     console.log('Avatar image failed to load, showing fallback');
                                 }}
                             />
@@ -64,7 +64,7 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                             <AvatarImage 
                                 src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
                                 alt="User Avatar"
-                                onError={(e) => {
+                                onError={() => {
                                     console.log('User avatar image failed to load, showing fallback');
                                 }}
                             />
