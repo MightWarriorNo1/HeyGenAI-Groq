@@ -219,6 +219,7 @@ const CameraModal = ({ isOpen, onClose, onCapture, onVisionAnalysis }: CameraMod
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-96 sm:h-64 bg-black rounded-lg"
               />
               <canvas ref={canvasRef} className="hidden" />
