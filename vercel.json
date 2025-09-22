@@ -3,11 +3,5 @@
     "api/heygen/[...path].ts": {
       "maxDuration": 30
     }
-  },
-  "env": {
-    "VITE_HEYGEN_API_KEY": "@vite_heygen_api_key",
-    "VITE_XAI_API_KEY": "@vite_xai_api_key",
-    "VITE_HEYGEN_AVATARID": "@vite_heygen_avatarid",
-    "VITE_HEYGEN_VOICEID": "@vite_heygen_voiceid"
   }
 }
