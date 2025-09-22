@@ -756,7 +756,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           avatar.current = new StreamingAvatarApi(
             new Configuration({ 
               accessToken: token,
-              basePath: '/api/heygen'
+              basePath: window.location.origin + '/api/heygen'
             })
           );
         }
