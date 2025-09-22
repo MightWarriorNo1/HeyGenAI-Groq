@@ -1,8 +1,7 @@
 // src/components/ChatMessage.tsx
 import { useEffect, useRef } from 'react';
-import { Avatar } from '@/components/ui/avatar';
-import { AvatarFallback, AvatarImage } from '@radix-ui/react-avatar';
 import MediaMessage from './MediaMessage';
+import IPadAvatar from './IPadAvatar';
 
 interface ChatMessageProps {
     role: string;
@@ -41,16 +40,14 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                 >
                     {
                         role ==='assistant' && (
-                        <Avatar className='mr-1 sm:mr-2 w-6 h-6 sm:w-8 sm:h-8'>
-                            <AvatarImage 
-                                src="https://github.com/shadcn.png" 
-                                alt="Assistant Avatar"
-                                onError={() => {
-                                    console.log('Avatar image failed to load, showing fallback');
-                                }}
-                            />
-                            <AvatarFallback>AI</AvatarFallback>
-                        </Avatar>
+                        <IPadAvatar 
+                            src="https://github.com/shadcn.png" 
+                            alt="Assistant Avatar"
+                            fallback="AI"
+                            className="mr-1 sm:mr-2 w-6 h-6 sm:w-8 sm:h-8"
+                            onLoad={() => console.log('Assistant avatar loaded')}
+                            onError={(e) => console.log('Assistant avatar failed to load', e)}
+                        />
                         )
                     }
                     <div
@@ -60,16 +57,14 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
                     </div>
                     {
                         role ==='user' && (
-                        <Avatar className='ml-1 sm:ml-2 w-6 h-6 sm:w-8 sm:h-8'>
-                            <AvatarImage 
-                                src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
-                                alt="User Avatar"
-                                onError={() => {
-                                    console.log('User avatar image failed to load, showing fallback');
-                                }}
-                            />
-                            <AvatarFallback>U</AvatarFallback>
-                        </Avatar>
+                        <IPadAvatar 
+                            src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
+                            alt="User Avatar"
+                            fallback="U"
+                            className="ml-1 sm:ml-2 w-6 h-6 sm:w-8 sm:h-8"
+                            onLoad={() => console.log('User avatar loaded')}
+                            onError={(e) => console.log('User avatar failed to load', e)}
+                        />
                         )
                     }
                 </div>

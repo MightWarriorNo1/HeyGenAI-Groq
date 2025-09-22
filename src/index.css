@@ -41,8 +41,10 @@ html, body {
     transform: translateZ(0);
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
-    -webkit-perspective: 1000;
-    perspective: 1000;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
+    -webkit-image-rendering: auto;
+    image-rendering: auto;
   }
   
   /* Fix for rounded images on iOS */
@@ -51,8 +53,78 @@ html, body {
     transform: translateZ(0);
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
-    -webkit-perspective: 1000;
-    perspective: 1000;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
     -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+    mask-image: radial-gradient(circle, white 100%, black 100%);
+    -webkit-image-rendering: auto;
+    image-rendering: auto;
+  }
+  
+  /* Additional iPad-specific fixes */
+  [data-radix-avatar-root] {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
+    -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+    mask-image: radial-gradient(circle, white 100%, black 100%);
+  }
+  
+  [data-radix-avatar-fallback] {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
+    -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+    mask-image: radial-gradient(circle, white 100%, black 100%);
+  }
+  
+  /* Force hardware acceleration for avatar components */
+  .avatar-container {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+  
+  /* Additional iPad-specific fixes for better image rendering */
+  .avatar-container img {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    -webkit-perspective: 1000px;
+    perspective: 1000px;
+    -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+    mask-image: radial-gradient(circle, white 100%, black 100%);
+    -webkit-image-rendering: auto;
+    image-rendering: auto;
+    will-change: transform;
+  }
+  
+  /* Ensure proper circular clipping on iPad */
+  .avatar-container [data-radix-avatar-root] {
+    -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+    mask-image: radial-gradient(circle, white 100%, black 100%);
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+}
+
+/* Additional global fixes for iPad */
+@media screen and (-webkit-min-device-pixel-ratio: 2) {
+  /* High DPI display fixes */
+  .avatar-container img {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
   }
 }

@@ -17,7 +17,11 @@ const Avatar = React.forwardRef<
       WebkitTransform: 'translateZ(0)',
       transform: 'translateZ(0)',
       WebkitBackfaceVisibility: 'hidden',
-      backfaceVisibility: 'hidden'
+      backfaceVisibility: 'hidden',
+      WebkitPerspective: '1000px',
+      perspective: '1000px',
+      WebkitMaskImage: '-webkit-radial-gradient(circle, white 100%, black 100%)',
+      maskImage: 'radial-gradient(circle, white 100%, black 100%)'
     }}
     {...props}
   />
@@ -36,8 +40,11 @@ const AvatarImage = React.forwardRef<
       transform: 'translateZ(0)',
       WebkitBackfaceVisibility: 'hidden',
       backfaceVisibility: 'hidden',
-      WebkitPerspective: '1000',
-      perspective: '1000'
+      WebkitPerspective: '1000px',
+      perspective: '1000px',
+      WebkitMaskImage: '-webkit-radial-gradient(circle, white 100%, black 100%)',
+      maskImage: 'radial-gradient(circle, white 100%, black 100%)',
+      imageRendering: 'auto'
     }}
     {...props}
   />
@@ -54,6 +61,16 @@ const AvatarFallback = React.forwardRef<
       "flex h-full w-full items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800",
       className
     )}
+    style={{
+      WebkitTransform: 'translateZ(0)',
+      transform: 'translateZ(0)',
+      WebkitBackfaceVisibility: 'hidden',
+      backfaceVisibility: 'hidden',
+      WebkitPerspective: '1000px',
+      perspective: '1000px',
+      WebkitMaskImage: '-webkit-radial-gradient(circle, white 100%, black 100%)',
+      maskImage: 'radial-gradient(circle, white 100%, black 100%)'
+    }}
     {...props}
   />
 ))
