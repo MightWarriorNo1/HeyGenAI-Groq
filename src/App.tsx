@@ -48,7 +48,6 @@ function App() {
   const [showChatArea, setShowChatArea] = useState<boolean>(false);
   const [isAvatarFullScreen, setIsAvatarFullScreen] = useState<boolean>(false);
   const [isChatBarVisible, setIsChatBarVisible] = useState<boolean>(false);
-  const displayName = (import.meta.env as any).VITE_AVATAR_DISPLAY_NAME || 'Assistant';
   const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
     // {
     //   role: 'user',
@@ -84,23 +83,12 @@ function App() {
 
   // Control chat visibility and avatar sizing based on input or messages
   useEffect(() => {
-    const hasInput = input.trim().length > 0;
-    const hasMessages = chatMessages.length > 0;
-    const shouldShowChat = hasInput || hasMessages;
-
-    // In vision mode, hide chat and make avatar full screen
-    if (isVisionMode) {
-      setShowChatArea(false);
-      setIsAvatarFullScreen(true);
-    } else {
-      setShowChatArea(shouldShowChat);
-      setIsAvatarFullScreen(!shouldShowChat);
-    }
+    // Always keep avatar full screen and never show chat area
+    setShowChatArea(false);
+    setIsAvatarFullScreen(true);
   }, [input, chatMessages.length, isVisionMode]);
 
 
-  const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
-  const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
   let timeout: any;
@@ -436,10 +424,6 @@ function App() {
     }
   };
 
-  // Function to remove attached file
-  const removeAttachedFile = (index: number) => {
-    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  };
 
 
   // Function to handle text input with conversation context
@@ -669,6 +653,9 @@ function App() {
         avatar.current.removeEventHandler("avatar_stop_talking", handleAvatarStopTalking);
         avatar.current.addEventHandler("avatar_stop_talking", handleAvatarStopTalking);
 
+        // Automatically start the avatar after getting the access token
+        await grab();
+
       } catch (error: any) {
         console.error("Error fetching access token:", error);
         toast({
@@ -712,7 +699,6 @@ function App() {
 
   // Function to initiate the avatar
   async function grab() {
-    setStartAvatarLoading(true);
     setIsAvatarFullScreen(true);
 
     // Check if required environment variables are present
@@ -720,7 +706,6 @@ function App() {
     const voiceId = import.meta.env.VITE_HEYGEN_VOICEID;
 
     if (!avatarId || !voiceId) {
-      setStartAvatarLoading(false);
       toast({
         variant: "destructive",
         title: "Missing Configuration",
@@ -730,16 +715,6 @@ function App() {
     }
 
     try {
-
-      const response = await getAccessToken();
-      const token = response.data.data.token;
-
-      if (!avatar.current) {
-        avatar.current = new StreamingAvatarApi(
-          new Configuration({ accessToken: token })
-        );
-      }
-
       const res = await avatar.current!.createStartAvatar(
         {
           newSessionRequest: {
@@ -752,7 +727,6 @@ function App() {
       console.log(res);
       setData(res);
       setStream(avatar.current!.mediaStream);
-      setStartAvatarLoading(false);
       setIsAvatarRunning(true);
 
     } catch (error: any) {
@@ -764,7 +738,6 @@ function App() {
         avatarId: avatarId,
         voiceId: voiceId
       });
-      setStartAvatarLoading(false);
 
       let errorMessage = 'Failed to start avatar. Please check your HeyGen configuration.';
       if (error.response?.status === 400) {
@@ -784,24 +757,6 @@ function App() {
   };
 
 
-  //Function to stop the avatar
-  async function stop() {
-    setStopAvatarLoading(true);
-    try {
-      await avatar.current?.stopAvatar({ stopSessionRequest: { sessionId: data?.sessionId } });
-      // handleStopSpeaking();
-      setStopAvatarLoading(false);
-      setIsAvatarRunning(false);
-      avatar.current = null;
-    } catch (error: any) {
-      setStopAvatarLoading(false);
-      toast({
-        variant: "destructive",
-        title: "Uh oh! Something went wrong.",
-        description: error.response.data.message || error.message,
-      })
-    }
-  }
 
 
 
@@ -837,17 +792,9 @@ function App() {
           {/* Video Container - Full screen on mobile until chat starts, then fill remaining */}
           <div className={`relative w-full lg:w-1/2 ${isAvatarFullScreen ? 'h-full' : (showChatArea ? 'flex-1 min-h-0' : 'h-1/2')} lg:h-full`}>
             <Video ref={mediaStream} className={isCameraOpen ? 'opacity-20 blur-sm transition-all duration-300' : 'opacity-100 transition-all duration-300'} />
-            {/* Name overlay */}
-            {isAvatarRunning && (
-              <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 z-20">
-                <div className="px-4 py-2 rounded-full bg-black/40 text-white text-sm sm:text-base font-semibold shadow-lg backdrop-blur-md border border-white/20">
-                  {displayName}
-                </div>
-              </div>
-            )}
-            {/* Chat now CTA when not chatting */}
-            {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !isChatBarVisible) && (
-              <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
+            {/* Chat now CTA when not chatting - positioned above avatar hands */}
+            {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !isChatBarVisible && chatMessages.length === 0) && (
+              <div className="absolute inset-x-0 bottom-40 sm:bottom-44 flex justify-center z-20">
                 <button
                   onClick={() => {
                     setIsChatBarVisible(true);
@@ -862,6 +809,64 @@ function App() {
                 </button>
               </div>
             )}
+
+            {/* Paper clip and camera buttons when user starts talking */}
+            {(isAvatarFullScreen && isAvatarRunning && chatMessages.length > 0 && !isChatBarVisible) && (
+              <div className="absolute inset-x-0 bottom-40 sm:bottom-44 flex justify-center gap-4 z-20">
+                {/* Paper Clip Button */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isAiProcessing}
+                  className="p-3 sm:p-4 bg-gradient-to-br from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 shadow-lg hover:shadow-xl"
+                  title={isAiProcessing ? 'AI is processing...' : 'Upload images or videos'}
+                >
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                </button>
+
+                {/* Camera Button */}
+                <button
+                  onClick={() => setIsCameraOpen(true)}
+                  disabled={isAiProcessing}
+                  className="p-3 sm:p-4 bg-gradient-to-br from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 shadow-lg hover:shadow-xl"
+                  title={isAiProcessing ? 'AI is processing...' : 'Open camera'}
+                >
+                  <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Stop chat button - subtle, below avatar hands */}
+            {(isAvatarFullScreen && isAvatarRunning && chatMessages.length > 0) && (
+              <div className="absolute inset-x-0 bottom-20 sm:bottom-24 flex justify-center z-20">
+                <button
+                  onClick={() => {
+                    setChatMessages([]);
+                    setInput('');
+                    setAttachedFiles([]);
+                    setIsChatBarVisible(false);
+                  }}
+                  className="px-3 py-2 text-xs sm:text-sm text-white/70 hover:text-white bg-black/20 hover:bg-black/40 rounded-lg backdrop-blur-sm border border-white/10 hover:border-white/20 transition-all duration-200"
+                  title="Stop chat and clear conversation"
+                >
+                  Stop chat
+                </button>
+              </div>
+            )}
+
+            {/* Hidden file input for paper clip button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
           </div>
 
           {/* Chat Container - Bottom on mobile when active, side panel on desktop */}
@@ -921,70 +926,7 @@ function App() {
           </div>
         </div>
 
-        {/* Avatar Control Buttons - Positioned above input bar */}
-        {!isAvatarRunning && (
-          <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
-            <div className="flex gap-2 sm:gap-3">
-              <button
-                onClick={grab}
-                disabled={startAvatarLoading}
-                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
-              >
-                {startAvatarLoading ? (
-                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                ) : (
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )}
-                <span className="hidden sm:inline">Start Avatar</span>
-                <span className="sm:hidden">Start</span>
-              </button>
-              <button
-                onClick={stop}
-                disabled={stopAvatarLoading}
-                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl disabled:shadow-none backdrop-blur-sm border border-white/20"
-              >
-                {stopAvatarLoading ? (
-                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                ) : (
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
-                  </svg>
-                )}
-                <span className="hidden sm:inline">Stop Avatar</span>
-                <span className="sm:hidden">Stop</span>
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* Attached Files Display - Responsive positioning */}
-        {attachedFiles.length > 0 && (
-          <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 lg:left-1/2 lg:right-0 bg-white/95 backdrop-blur-md border-t border-white/30 p-3 sm:p-4 z-20 shadow-lg">
-            <div className="container mx-auto lg:mx-0 max-w-2xl lg:max-w-none">
-              <div className="flex flex-wrap gap-2 sm:gap-3">
-                {attachedFiles.map((file, index) => (
-                  <div key={index} className="flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl px-3 py-2 shadow-sm">
-                    <div className="w-6 h-6 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <span className="text-xs sm:text-sm text-gray-700 truncate max-w-24 sm:max-w-32 font-medium">{file.name}</span>
-                    <button
-                      onClick={() => removeAttachedFile(index)}
-                      className="text-red-500 hover:text-red-700 text-sm font-bold p-1 hover:bg-red-50 rounded-full transition-colors"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Chat Bar - Responsive positioning */}
         {isChatBarVisible && (
@@ -1010,14 +952,6 @@ function App() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,video/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
 
                 {/* Camera Button */}
                 <button
