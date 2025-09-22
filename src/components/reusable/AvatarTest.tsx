@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import IPadAvatar from './IPadAvatar';
-import { isIPad, isIOSSafari } from '@/lib/utils';
+import MobileAvatar from './IPadAvatar';
+import { isIPad, isIOSSafari, isAndroid, isMobile, needsAvatarFixes } from '@/lib/utils';
 
 const AvatarTest: React.FC = () => {
   const [deviceInfo, setDeviceInfo] = useState({
@@ -8,6 +8,9 @@ const AvatarTest: React.FC = () => {
     platform: '',
     isIPad: false,
     isIOSSafari: false,
+    isAndroid: false,
+    isMobile: false,
+    needsAvatarFixes: false,
     isTouchDevice: false
   });
 
@@ -17,6 +20,9 @@ const AvatarTest: React.FC = () => {
       platform: navigator.platform,
       isIPad: isIPad(),
       isIOSSafari: isIOSSafari(),
+      isAndroid: isAndroid(),
+      isMobile: isMobile(),
+      needsAvatarFixes: needsAvatarFixes(),
       isTouchDevice: 'ontouchstart' in window
     });
   }, []);
@@ -33,6 +39,9 @@ const AvatarTest: React.FC = () => {
           <p><strong>Platform:</strong> {deviceInfo.platform}</p>
           <p><strong>Is iPad:</strong> {deviceInfo.isIPad ? 'Yes' : 'No'}</p>
           <p><strong>Is iOS Safari:</strong> {deviceInfo.isIOSSafari ? 'Yes' : 'No'}</p>
+          <p><strong>Is Android:</strong> {deviceInfo.isAndroid ? 'Yes' : 'No'}</p>
+          <p><strong>Is Mobile:</strong> {deviceInfo.isMobile ? 'Yes' : 'No'}</p>
+          <p><strong>Needs Avatar Fixes:</strong> {deviceInfo.needsAvatarFixes ? 'Yes' : 'No'}</p>
           <p><strong>Is Touch Device:</strong> {deviceInfo.isTouchDevice ? 'Yes' : 'No'}</p>
         </div>
       </div>
@@ -42,7 +51,7 @@ const AvatarTest: React.FC = () => {
         <div className="p-4 bg-white rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-3">Assistant Avatar Test</h3>
           <div className="flex items-center space-x-4">
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://github.com/shadcn.png" 
               alt="Assistant Avatar"
               fallback="AI"
@@ -60,7 +69,7 @@ const AvatarTest: React.FC = () => {
         <div className="p-4 bg-white rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-3">User Avatar Test</h3>
           <div className="flex items-center space-x-4">
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
               alt="User Avatar"
               fallback="U"
@@ -78,7 +87,7 @@ const AvatarTest: React.FC = () => {
         <div className="p-4 bg-white rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-3">Fallback Test (Invalid URL)</h3>
           <div className="flex items-center space-x-4">
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://invalid-url-that-should-fail.com/image.jpg" 
               alt="Fallback Avatar"
               fallback="FB"
@@ -96,19 +105,19 @@ const AvatarTest: React.FC = () => {
         <div className="p-4 bg-white rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-3">Different Sizes Test</h3>
           <div className="flex items-center space-x-4">
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://github.com/shadcn.png" 
               alt="Small Avatar"
               fallback="S"
               className="w-6 h-6"
             />
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://github.com/shadcn.png" 
               alt="Medium Avatar"
               fallback="M"
               className="w-8 h-8"
             />
-            <IPadAvatar 
+            <MobileAvatar 
               src="https://github.com/shadcn.png" 
               alt="Large Avatar"
               fallback="L"

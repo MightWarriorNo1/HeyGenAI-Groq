@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { isIPad } from '@/lib/utils';
+import { isIPad, isAndroid, isMobile, needsAvatarFixes } from '@/lib/utils';
 
-interface IPadAvatarProps {
+interface MobileAvatarProps {
   src: string;
   alt: string;
   fallback: string;
@@ -11,7 +11,7 @@ interface IPadAvatarProps {
   onError?: (error: Event) => void;
 }
 
-const IPadAvatar: React.FC<IPadAvatarProps> = ({
+const MobileAvatar: React.FC<MobileAvatarProps> = ({
   src,
   alt,
   fallback,
@@ -21,10 +21,20 @@ const IPadAvatar: React.FC<IPadAvatarProps> = ({
 }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [isIPadDevice, setIsIPadDevice] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState({
+    isIPad: false,
+    isAndroid: false,
+    isMobile: false,
+    needsFixes: false
+  });
 
   useEffect(() => {
-    setIsIPadDevice(isIPad());
+    setDeviceInfo({
+      isIPad: isIPad(),
+      isAndroid: isAndroid(),
+      isMobile: isMobile(),
+      needsFixes: needsAvatarFixes()
+    });
   }, []);
 
   const handleImageLoad = () => {
@@ -34,7 +44,7 @@ const IPadAvatar: React.FC<IPadAvatarProps> = ({
   };
 
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    console.log('Avatar image failed to load on iPad:', e);
+    console.log('Avatar image failed to load:', e);
     setImageError(true);
     setImageLoaded(false);
     
@@ -47,10 +57,10 @@ const IPadAvatar: React.FC<IPadAvatarProps> = ({
     onError?.(e.nativeEvent);
   };
 
-  // For iPad, we'll use a more robust approach
-  if (isIPadDevice) {
+  // For devices that need special handling (iPad, Android, mobile)
+  if (deviceInfo.needsFixes) {
     return (
-      <Avatar className={`avatar-container ${className}`}>
+      <Avatar className={`avatar-container mobile-avatar ${className}`}>
         {!imageError && (
           <AvatarImage 
             src={src} 
@@ -74,7 +84,7 @@ const IPadAvatar: React.FC<IPadAvatarProps> = ({
     );
   }
 
-  // For non-iPad devices, use standard avatar
+  // For desktop devices, use standard avatar
   return (
     <Avatar className={`avatar-container ${className}`}>
       <AvatarImage 
@@ -90,4 +100,4 @@ const IPadAvatar: React.FC<IPadAvatarProps> = ({
   );
 };
 
-export default IPadAvatar;
+export default MobileAvatar;
