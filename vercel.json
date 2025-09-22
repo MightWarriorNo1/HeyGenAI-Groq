@@ -1,6 +1,6 @@
 {
   "functions": {
-    "pages/api/heygen/[...path].ts": {
+    "api/heygen/[...path].ts": {
       "maxDuration": 30
     }
   }
