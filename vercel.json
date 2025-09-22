@@ -1,6 +1,9 @@
 {
   "functions": {
-    "api/heygen/[...path].ts": {
+    "api/heygen/v1/streaming.create_token.ts": {
+      "maxDuration": 30
+    },
+    "api/heygen/v1/streaming.new.ts": {
       "maxDuration": 30
     }
   }
