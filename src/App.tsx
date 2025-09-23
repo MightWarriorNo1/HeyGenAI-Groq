@@ -1212,13 +1212,13 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
             <div className="flex flex-col items-center gap-2">
               {/* Avatar Speaking Indicator */}
-              {isAvatarSpeaking && (
+              {/* {isAvatarSpeaking && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-xs sm:text-sm shadow-lg backdrop-blur-sm border border-white/20">
                   <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                   <span>Avatar Speaking - You can interrupt</span>
                 </div>
               )}
-              
+               */}
               {/* Stop Button */}
               <div className="flex gap-2 sm:gap-3">
                 <button
