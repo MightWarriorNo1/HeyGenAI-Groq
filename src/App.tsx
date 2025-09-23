@@ -24,6 +24,7 @@ function App() {
 
   const [isListening, setIsListening] = useState<boolean>(false);
   const [avatarSpeech, setAvatarSpeech] = useState<string>('');
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const [stream, setStream] = useState<MediaStream>();
   const [data, setData] = useState<NewSessionData>();
   const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
@@ -131,6 +132,9 @@ function App() {
       // Mark that user has started chatting
       setHasUserStartedChatting(true);
       
+      // If avatar was speaking and got interrupted, acknowledge the interruption
+      const wasInterrupted = isAvatarSpeaking;
+      
       // Add user message to chat
       const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
       setChatMessages(updatedMessages);
@@ -138,13 +142,8 @@ function App() {
       // Set loading state
       setIsAiProcessing(true);
 
-      // Get AI response using xAI with full conversation context
-      const aiResponse = await openai.chat.completions.create({
-        model: 'grok-2-latest',
-        messages: [
-          { 
-            role: 'system', 
-            content: `You are iSolveUrProblems, a hilariously helpful AI assistant with the personality of a witty comedian who happens to be incredibly smart. Your mission: solve problems while making people laugh out loud!
+      // Build system message with interruption awareness
+      let systemMessage = `You are iSolveUrProblems, a hilariously helpful AI assistant with the personality of a witty comedian who happens to be incredibly smart. Your mission: solve problems while making people laugh out loud!
 
 PERSONALITY TRAITS:
 - Crack jokes, puns, and witty observations constantly
@@ -168,7 +167,20 @@ RESPONSE STYLE:
 - Keep responses helpful but entertaining
 - If someone shares media, react with humor while being genuinely helpful
 
-Remember: You're not just solving problems, you're putting on a comedy show while being genuinely useful!` 
+Remember: You're not just solving problems, you're putting on a comedy show while being genuinely useful!`;
+
+      // If the user interrupted the avatar, add context about the interruption
+      if (wasInterrupted) {
+        systemMessage += `\n\nIMPORTANT: The user just interrupted you while you were speaking. Acknowledge this naturally and respond to their new input. Be gracious about the interruption - it's part of natural conversation!`;
+      }
+
+      // Get AI response using xAI with full conversation context
+      const aiResponse = await openai.chat.completions.create({
+        model: 'grok-2-latest',
+        messages: [
+          { 
+            role: 'system', 
+            content: systemMessage
           },
           ...updatedMessages.map(msg => {
             if (msg.media) {
@@ -212,6 +224,40 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       description: error,
     });
     setIsListening(false);
+  };
+
+  // Function to handle user interruption while avatar is speaking
+  const handleUserInterrupt = async () => {
+    console.log('User interrupted avatar speech');
+    if (isAvatarSpeaking && avatar.current && data?.sessionId) {
+      try {
+        // Stop the avatar's current speech
+        await avatar.current.interrupt({ 
+          interruptRequest: { 
+            sessionId: data.sessionId 
+          } 
+        });
+        
+        // Clear the speech text and update state
+        setAvatarSpeech('');
+        setIsAvatarSpeaking(false);
+        
+        // Update speech recognition service
+        if (speechService.current) {
+          speechService.current.setAvatarSpeaking(false);
+        }
+        
+        console.log('Avatar speech interrupted successfully');
+      } catch (error) {
+        console.error('Error interrupting avatar speech:', error);
+        // Even if API call fails, update local state
+        setAvatarSpeech('');
+        setIsAvatarSpeaking(false);
+        if (speechService.current) {
+          speechService.current.setAvatarSpeaking(false);
+        }
+      }
+    }
   };
 
   // Function to handle file uploads
@@ -566,7 +612,8 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   useEffect(() => {
     speechService.current = new SpeechRecognitionService(
       handleSpeechResult,
-      handleSpeechError
+      handleSpeechError,
+      handleUserInterrupt
     );
 
     return () => {
@@ -578,11 +625,11 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 
   // Auto-start continuous listening when avatar is running
   useEffect(() => {
-    if (isAvatarRunning && speechService.current && !isListening && !isAiProcessing) {
+    if (isAvatarRunning && speechService.current && !isListening && !isAiProcessing && !isAvatarSpeaking) {
       console.log('Auto-starting continuous speech recognition...');
       handleStartListening();
     }
-  }, [isAvatarRunning, isListening, isAiProcessing]);
+  }, [isAvatarRunning, isListening, isAiProcessing, isAvatarSpeaking]);
 
   // Periodic check to ensure speech recognition stays active
   useEffect(() => {
@@ -604,9 +651,26 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     async function speak() {
       if (avatarSpeech && data?.sessionId) {
         try {
+          // Set avatar speaking state
+          setIsAvatarSpeaking(true);
+          if (speechService.current) {
+            speechService.current.setAvatarSpeaking(true);
+          }
+          
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
+          
+          // Avatar finished speaking
+          setIsAvatarSpeaking(false);
+          if (speechService.current) {
+            speechService.current.setAvatarSpeaking(false);
+          }
         } catch (err: any) {
           console.error(err);
+          // Reset speaking state on error
+          setIsAvatarSpeaking(false);
+          if (speechService.current) {
+            speechService.current.setAvatarSpeaking(false);
+          }
         }
       }
     }
@@ -901,8 +965,12 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           } 
         });
         
-        // Clear the speech text
+        // Clear the speech text and update speaking state
         setAvatarSpeech('');
+        setIsAvatarSpeaking(false);
+        if (speechService.current) {
+          speechService.current.setAvatarSpeaking(false);
+        }
         
       toast({
           title: "Speech Stopped",
@@ -911,6 +979,10 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       } else {
         // If no active session, just clear the speech text
         setAvatarSpeech('');
+        setIsAvatarSpeaking(false);
+        if (speechService.current) {
+          speechService.current.setAvatarSpeaking(false);
+        }
         toast({
           title: "Speech Stopped",
           description: "Avatar has stopped talking",
@@ -918,8 +990,12 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       }
     } catch (error) {
       console.error('Error stopping avatar speech:', error);
-      // Even if API call fails, clear the speech text
+      // Even if API call fails, clear the speech text and update state
       setAvatarSpeech('');
+      setIsAvatarSpeaking(false);
+      if (speechService.current) {
+        speechService.current.setAvatarSpeaking(false);
+      }
       toast({
         title: "Speech Stopped",
         description: "Avatar has stopped talking",
@@ -1134,20 +1210,31 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         {/* Avatar Control Buttons - Only show Stop button when user has started chatting */}
         {isAvatarRunning && !startAvatarLoading && hasUserStartedChatting && (
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
-            <div className="flex gap-2 sm:gap-3">
+            <div className="flex flex-col items-center gap-2">
+              {/* Avatar Speaking Indicator */}
+              {isAvatarSpeaking && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-xs sm:text-sm shadow-lg backdrop-blur-sm border border-white/20">
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                  <span>Avatar Speaking - You can interrupt</span>
+                </div>
+              )}
+              
+              {/* Stop Button */}
+              <div className="flex gap-2 sm:gap-3">
                 <button
-                onClick={stopAvatarSpeech}
-                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl backdrop-blur-sm border border-white/20"
-              >
-                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
-                </svg>
-                <span className="hidden sm:inline">Stop Talking</span>
-                <span className="sm:hidden">Stop</span>
+                  onClick={stopAvatarSpeech}
+                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl backdrop-blur-sm border border-white/20"
+                >
+                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+                  </svg>
+                  <span className="hidden sm:inline">Stop Talking</span>
+                  <span className="sm:hidden">Stop</span>
                 </button>
               </div>
             </div>
+          </div>
         )}
 
         {/* Loading indicator when avatar is starting automatically */}

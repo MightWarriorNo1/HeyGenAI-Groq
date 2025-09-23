@@ -4,12 +4,17 @@ export class SpeechRecognitionService {
   private isListening: boolean = false;
   private onResult: (text: string) => void;
   private onError: (error: string) => void;
+  private onInterrupt: (() => void) | null = null;
   private accumulatedText: string = '';
   private speechTimeout: any = null;
+  private isAvatarSpeaking: boolean = false;
+  private lastInterruptTime: number = 0;
+  private interruptDebounceMs: number = 1000; // 1 second debounce
 
-  constructor(onResult: (text: string) => void, onError: (error: string) => void) {
+  constructor(onResult: (text: string) => void, onError: (error: string) => void, onInterrupt?: () => void) {
     this.onResult = onResult;
     this.onError = onError;
+    this.onInterrupt = onInterrupt || null;
     this.initializeRecognition();
   }
 
@@ -47,6 +52,32 @@ export class SpeechRecognitionService {
           finalTranscript += transcript;
         } else {
           interimTranscript += transcript;
+        }
+      }
+      
+      // Check for user interruption if avatar is speaking (with debounce)
+      if (this.isAvatarSpeaking && (interimTranscript.trim().length > 0 || finalTranscript.trim().length > 0)) {
+        const currentTime = Date.now();
+        if (currentTime - this.lastInterruptTime > this.interruptDebounceMs) {
+          console.log('User interruption detected while avatar is speaking');
+          this.lastInterruptTime = currentTime;
+          if (this.onInterrupt) {
+            this.onInterrupt();
+          }
+        } else {
+          console.log('Interrupt debounced - too soon since last interrupt');
+        }
+      }
+      
+      // Also check for interruption on interim results (more responsive)
+      if (this.isAvatarSpeaking && interimTranscript.trim().length > 2) {
+        const currentTime = Date.now();
+        if (currentTime - this.lastInterruptTime > this.interruptDebounceMs) {
+          console.log('User interruption detected via interim results while avatar is speaking');
+          this.lastInterruptTime = currentTime;
+          if (this.onInterrupt) {
+            this.onInterrupt();
+          }
         }
       }
       
@@ -229,6 +260,20 @@ export class SpeechRecognitionService {
       clearTimeout(this.speechTimeout);
       this.speechTimeout = null;
     }
+  }
+
+  public setAvatarSpeaking(speaking: boolean): void {
+    this.isAvatarSpeaking = speaking;
+    console.log('Avatar speaking state set to:', speaking);
+  }
+
+  public isAvatarCurrentlySpeaking(): boolean {
+    return this.isAvatarSpeaking;
+  }
+
+  public setInterruptDebounce(ms: number): void {
+    this.interruptDebounceMs = ms;
+    console.log('Interrupt debounce set to:', ms, 'ms');
   }
 }
 
