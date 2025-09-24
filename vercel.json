@@ -1,17 +1,9 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/heygen/:path*",
-      "destination": "https://api.heygen.com/:path*"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Permissions-Policy", "value": "microphone=(\"*\"), camera=(\"*\")" }
-      ]
-    }
-  ]
-}
+    "rewrites": [
+      {
+        "source": "/api/heygen/:path*",
+        "destination": "https://api.heygen.com/:path*"
+      }
+    ]
+  }
   

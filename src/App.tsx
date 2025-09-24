@@ -5,6 +5,7 @@ import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/strea
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
+import { isAndroid } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { SpeechRecognitionService } from './utils/speechRecognition';
 import AvatarTest from './components/reusable/AvatarTest';
@@ -1137,14 +1138,19 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
             </div>
           </div>
         )}
-            {/* Start Chat indicator - non-clickable, disappears when user starts talking */}
+            {/* Chat Now indicator - clickable only on Android, disappears when user starts talking */}
             {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !hasUserStartedChatting) && (
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
-                <div className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 pointer-events-none">
-                  Start Chat
-            </div>
-          </div>
-        )}
+                <div
+                  className={`px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 ${isAndroid() ? 'cursor-pointer pointer-events-auto' : 'pointer-events-none'}`}
+                  onClick={isAndroid() ? () => setHasUserStartedChatting(true) : undefined}
+                  role={isAndroid() ? 'button' : undefined}
+                  aria-disabled={!isAndroid()}
+                >
+                  Chat Now
+                </div>
+              </div>
+            )}
 
 
             {/* Control buttons when user has started chatting */}
