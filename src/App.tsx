@@ -656,6 +656,8 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           setIsAvatarSpeaking(true);
           if (speechService.current) {
             speechService.current.setAvatarSpeaking(true);
+            // Pause listening while avatar speaks to avoid feedback/echo
+            speechService.current.stopListening();
           }
           
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
@@ -664,6 +666,12 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           setIsAvatarSpeaking(false);
           if (speechService.current) {
             speechService.current.setAvatarSpeaking(false);
+            // Resume listening shortly after finishing
+            setTimeout(() => {
+              if (speechService.current && isAvatarRunning && !isAiProcessing) {
+                speechService.current.startListening().catch(console.error);
+              }
+            }, 400);
           }
         } catch (err: any) {
           console.error(err);
@@ -671,6 +679,11 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           setIsAvatarSpeaking(false);
           if (speechService.current) {
             speechService.current.setAvatarSpeaking(false);
+            setTimeout(() => {
+              if (speechService.current && isAvatarRunning && !isAiProcessing) {
+                speechService.current.startListening().catch(console.error);
+              }
+            }, 600);
           }
         }
       }
@@ -1143,7 +1156,15 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
                 <div
                   className={`px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 ${isAndroid() ? 'cursor-pointer pointer-events-auto' : 'pointer-events-none'}`}
-                  onClick={isAndroid() ? () => setHasUserStartedChatting(true) : undefined}
+                  onClick={isAndroid() ? async () => {
+                    // Mark chat as started and try to ensure video is playing (Android autoplay)
+                    setHasUserStartedChatting(true);
+                    try {
+                      if (mediaStream.current) {
+                        await mediaStream.current.play();
+                      }
+                    } catch {}
+                  } : undefined}
                   role={isAndroid() ? 'button' : undefined}
                   aria-disabled={!isAndroid()}
                 >

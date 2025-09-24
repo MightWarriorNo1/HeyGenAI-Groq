@@ -145,8 +145,8 @@ export class SpeechRecognitionService {
       this.isListening = false;
       this.clearAccumulatedText(); // Clear any accumulated text on error
       
-      // Auto-restart for recoverable errors
-      if (shouldRestart) {
+      // Auto-restart for recoverable errors (but avoid during avatar speech)
+      if (shouldRestart && !this.isAvatarSpeaking) {
         setTimeout(() => {
           if (!this.isListening) {
             console.log('Auto-restarting speech recognition after error...');
@@ -167,6 +167,12 @@ export class SpeechRecognitionService {
         this.accumulatedText = '';
       }
       
+      // Skip auto-restart if avatar is speaking to prevent feedback
+      if (this.isAvatarSpeaking) {
+        console.log('Skip auto-restart: avatar is speaking');
+        return;
+      }
+
       // Automatically restart listening after a short delay
       setTimeout(() => {
         if (!this.isListening) {
@@ -188,8 +194,14 @@ export class SpeechRecognitionService {
   public async startListening(): Promise<void> {
     if (this.recognition && !this.isListening) {
       try {
-        // Request microphone permission first
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Request microphone permission first with voice-friendly constraints
+        await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } as MediaTrackConstraints
+        });
         console.log('Starting speech recognition...');
         this.recognition.start();
       } catch (error: any) {
