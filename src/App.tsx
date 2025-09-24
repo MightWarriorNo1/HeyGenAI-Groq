@@ -1164,6 +1164,27 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
                         await mediaStream.current.play();
                       }
                     } catch {}
+
+                    // Explicitly request mic permission and start listening on user gesture
+                    try {
+                      await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                          echoCancellation: true,
+                          noiseSuppression: true,
+                          autoGainControl: true
+                        }
+                      });
+                      if (speechService.current && !isListening && !isAiProcessing) {
+                        await speechService.current.startListening();
+                      }
+                    } catch (e: any) {
+                      console.error('Android mic permission error:', e);
+                      toast({
+                        variant: "destructive",
+                        title: "Microphone permission required",
+                        description: "Please allow microphone access to talk to the avatar.",
+                      });
+                    }
                   } : undefined}
                   role={isAndroid() ? 'button' : undefined}
                   aria-disabled={!isAndroid()}
@@ -1238,6 +1259,10 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         {isAvatarRunning && !startAvatarLoading && hasUserStartedChatting && (
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
             <div className="flex flex-col items-center gap-2">
+              {/* Mic status badge */}
+              <div className={`px-3 py-1 rounded-full text-xs font-medium shadow-md border border-white/20 backdrop-blur-sm ${isListening ? 'bg-green-500/90 text-white' : 'bg-yellow-500/90 text-white'}`}>
+                {isListening ? 'Mic: Listening' : (isAiProcessing ? 'AI: Thinking' : 'Mic: Idle')}
+              </div>
               {/* Avatar Speaking Indicator */}
               {/* {isAvatarSpeaking && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-xs sm:text-sm shadow-lg backdrop-blur-sm border border-white/20">
