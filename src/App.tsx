@@ -43,6 +43,7 @@ function App() {
   const [hasUserStartedChatting, setHasUserStartedChatting] = useState<boolean>(false);
   const [videoNeedsInteraction, setVideoNeedsInteraction] = useState<boolean>(false);
   const [showAvatarTest, setShowAvatarTest] = useState<boolean>(false);
+  const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
   const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
     // {
     //   role: 'user',
@@ -92,7 +93,6 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
-  const [micPermissionDenied, setMicPermissionDenied] = useState<boolean>(false);
   let timeout: any;
 
 
@@ -625,6 +625,54 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     };
   }, []);
 
+  // Check microphone permission using Permissions API where available
+  useEffect(() => {
+    async function checkMicPermission() {
+      try {
+        const anyNavigator = navigator as any;
+        if (anyNavigator && anyNavigator.permissions && anyNavigator.permissions.query) {
+          const status = await anyNavigator.permissions.query({ name: 'microphone' } as any);
+          setMicPermission((status.state as any) || 'prompt');
+          status.onchange = () => {
+            setMicPermission((status.state as any) || 'prompt');
+          };
+        } else {
+          // Fallback: assume permission prompt state
+          setMicPermission('prompt');
+        }
+      } catch {
+        setMicPermission('prompt');
+      }
+    }
+    checkMicPermission();
+  }, []);
+
+  // Helper to request mic access on user gesture/button
+  const requestMicrophoneAccess = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      setMicPermission('granted');
+      if (speechService.current && !isListening && !isAiProcessing) {
+        await speechService.current.startListening();
+      }
+      toast({ title: 'Microphone enabled' });
+    } catch (e: any) {
+      console.error('Microphone permission request failed:', e);
+      setMicPermission('denied');
+      toast({
+        variant: 'destructive',
+        title: 'Microphone access denied',
+        description: 'Please allow microphone access in your browser settings and try again.'
+      });
+    }
+  };
+
   // Auto-start continuous listening when avatar is running
   useEffect(() => {
     if (isAvatarRunning && speechService.current && !isListening && !isAiProcessing && !isAvatarSpeaking) {
@@ -878,14 +926,10 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         try {
           // Check if microphone is available before starting
           await navigator.mediaDevices.getUserMedia({ audio: true });
-          setMicPermissionDenied(false);
           console.log("Auto-starting speech recognition...");
           handleStartListening();
         } catch (error: any) {
           console.log("Microphone not available, skipping auto-start listening:", error.message);
-          if (error?.name === 'NotAllowedError') {
-            setMicPermissionDenied(true);
-          }
           // Don't show error toast for auto-start failures, just log it
         }
       }, 2000);
@@ -1129,6 +1173,24 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           </div>
         </div>
 
+        {/* Mic permission banner */}
+        {isAvatarRunning && micPermission !== 'granted' && (
+          <div className="fixed top-[56px] left-0 right-0 z-30">
+            <div className="mx-2 sm:mx-auto sm:max-w-md bg-red-500 text-white rounded-xl shadow-xl border border-white/20 px-4 py-3 flex items-start gap-3">
+              <div className="flex-1">
+                <div className="font-semibold text-sm">Microphone access required</div>
+                <div className="text-xs opacity-90">Tap Enable and allow mic permission so the avatar can hear you.</div>
+              </div>
+              <button
+                onClick={requestMicrophoneAccess}
+                className="px-3 py-1.5 bg-white/90 text-red-700 rounded-lg text-xs font-semibold hover:bg-white"
+              >
+                Enable
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content Area - Full width video container */}
         <div className="w-full h-screen pt-16 sm:pt-20">
           {/* Video Container - Full screen */}
@@ -1179,13 +1241,13 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
                           autoGainControl: true
                         }
                       });
-                      setMicPermissionDenied(false);
+                      setMicPermission('granted');
                       if (speechService.current && !isListening && !isAiProcessing) {
                         await speechService.current.startListening();
                       }
                     } catch (e: any) {
                       console.error('Android mic permission error:', e);
-                      setMicPermissionDenied(true);
+                      setMicPermission('denied');
                       toast({
                         variant: "destructive",
                         title: "Microphone permission required",
@@ -1267,33 +1329,9 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
             <div className="flex flex-col items-center gap-2">
               {/* Mic status badge */}
-              <div className={`px-3 py-1 rounded-full text-xs font-medium shadow-md border border-white/20 backdrop-blur-sm ${micPermissionDenied ? 'bg-red-500/90 text-white' : isListening ? 'bg-green-500/90 text-white' : 'bg-yellow-500/90 text-white'}`}>
-                {micPermissionDenied ? 'Mic: Permission denied' : isListening ? 'Mic: Listening' : (isAiProcessing ? 'AI: Thinking' : 'Mic: Idle')}
+              <div className={`px-3 py-1 rounded-full text-xs font-medium shadow-md border border-white/20 backdrop-blur-sm ${isListening ? 'bg-green-500/90 text-white' : 'bg-yellow-500/90 text-white'}`}>
+                {isListening ? 'Mic: Listening' : (isAiProcessing ? 'AI: Thinking' : 'Mic: Idle')}
               </div>
-              {micPermissionDenied && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                          echoCancellation: true,
-                          noiseSuppression: true,
-                          autoGainControl: true
-                        }
-                      });
-                      setMicPermissionDenied(false);
-                      if (speechService.current && !isListening && !isAiProcessing) {
-                        await speechService.current.startListening();
-                      }
-                    } catch (e) {
-                      console.log('Mic permission still denied');
-                    }
-                  }}
-                  className="px-3 py-1 bg-white/20 text-white rounded-full text-xs shadow"
-                >
-                  Retry mic
-                </button>
-              )}
               {/* Avatar Speaking Indicator */}
               {/* {isAvatarSpeaking && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-xs sm:text-sm shadow-lg backdrop-blur-sm border border-white/20">

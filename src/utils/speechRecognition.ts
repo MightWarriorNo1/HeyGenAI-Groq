@@ -10,7 +10,6 @@ export class SpeechRecognitionService {
   private isAvatarSpeaking: boolean = false;
   private lastInterruptTime: number = 0;
   private interruptDebounceMs: number = 1000; // 1 second debounce
-  private suppressAutoRestart: boolean = false; // Block auto-restart on hard errors (e.g., permission denied)
 
   constructor(onResult: (text: string) => void, onError: (error: string) => void, onInterrupt?: () => void) {
     this.onResult = onResult;
@@ -121,7 +120,6 @@ export class SpeechRecognitionService {
       
       if (event.error === 'not-allowed') {
         errorMessage = 'Microphone access denied. Please allow microphone access and refresh the page.';
-        this.suppressAutoRestart = true;
       } else if (event.error === 'no-speech') {
         errorMessage = 'No speech detected. Please try again.';
         shouldRestart = true; // Restart for no-speech errors
@@ -136,7 +134,6 @@ export class SpeechRecognitionService {
         return; // Don't show error for aborted, just restart
       } else if (event.error === 'service-not-allowed') {
         errorMessage = 'Speech recognition service not allowed. Please check your browser settings.';
-        this.suppressAutoRestart = true;
       } else {
         shouldRestart = true; // Restart for other errors
       }
@@ -149,7 +146,7 @@ export class SpeechRecognitionService {
       this.clearAccumulatedText(); // Clear any accumulated text on error
       
       // Auto-restart for recoverable errors (but avoid during avatar speech)
-      if (shouldRestart && !this.isAvatarSpeaking && !this.suppressAutoRestart) {
+      if (shouldRestart && !this.isAvatarSpeaking) {
         setTimeout(() => {
           if (!this.isListening) {
             console.log('Auto-restarting speech recognition after error...');
@@ -171,7 +168,7 @@ export class SpeechRecognitionService {
       }
       
       // Skip auto-restart if avatar is speaking to prevent feedback
-      if (this.isAvatarSpeaking || this.suppressAutoRestart) {
+      if (this.isAvatarSpeaking) {
         console.log('Skip auto-restart: avatar is speaking');
         return;
       }
