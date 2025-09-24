@@ -32,15 +32,32 @@ const ClientSideMicButton = ({ onTranscription, onError, className = '' }: Clien
     };
   }, [onTranscription, onError]);
 
-  const handleMicClick = () => {
+  const handleMicClick = async () => {
     if (!speechService.current) return;
 
     if (isListening) {
       speechService.current.stopListening();
       setIsListening(false);
-    } else {
-      speechService.current.startListening();
+      return;
+    }
+
+    // Explicitly request microphone permission on Android/Chrome where
+    // Web Speech API support is partial or permission prompts are flaky.
+    try {
+      if (navigator?.mediaDevices?.getUserMedia) {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err) {
+      onError('Microphone permission was denied. Please enable mic permissions in your browser settings.');
+      return;
+    }
+
+    try {
+      await speechService.current.startListening();
       setIsListening(true);
+    } catch (err) {
+      onError('Failed to start listening. Your browser may not support speech recognition.');
+      setIsListening(false);
     }
   };
 
