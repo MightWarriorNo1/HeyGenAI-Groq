@@ -31,12 +31,13 @@ export class SpeechDetectionService {
     }
 
     try {
-      // Request microphone access
+      // Request microphone access (tune constraints for Android)
+      const isAndroid = this.isAndroid();
       this.stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          echoCancellation: isAndroid ? false : true,
+          noiseSuppression: isAndroid ? false : true,
+          autoGainControl: isAndroid ? false : true,
           channelCount: 1
         }
       });
@@ -47,6 +48,18 @@ export class SpeechDetectionService {
       this.configurePlatformDefaults();
       this.analyser = this.audioContext.createAnalyser();
       this.microphone = this.audioContext.createMediaStreamSource(this.stream);
+
+      // On Android, explicitly disable track-level processing that can zero low levels
+      try {
+        const track = this.stream.getAudioTracks()[0];
+        if (track && isAndroid && track.applyConstraints) {
+          await track.applyConstraints({
+            echoCancellation: false as any,
+            noiseSuppression: false as any,
+            autoGainControl: false as any
+          } as any);
+        }
+      } catch {}
 
       // Configure analyser
       this.analyser.fftSize = 1024; // Larger window helps stabilize RMS on Android
@@ -118,7 +131,7 @@ export class SpeechDetectionService {
 
     // Use time-domain RMS which is more reliable on Android than frequency averages
     const timeDomain = new Uint8Array(this.analyser.fftSize);
-    let noiseFloor = 0.005; // adaptive baseline
+    let noiseFloor = this.isAndroid() ? 0.0015 : 0.005; // adaptive baseline
     const noiseSmoothing = 0.95;
     
     const analyze = () => {
@@ -140,6 +153,8 @@ export class SpeechDetectionService {
       noiseFloor = noiseSmoothing * noiseFloor + (1 - noiseSmoothing) * rms;
       const levelAboveNoise = Math.max(0, rms - noiseFloor);
       const normalizedVolume = levelAboveNoise;
+      // Debug: uncomment for tuning
+      // console.log('RMS', rms.toFixed(4), 'NF', noiseFloor.toFixed(4), 'LV', normalizedVolume.toFixed(4));
 
       const now = Date.now();
       
