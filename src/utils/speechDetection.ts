@@ -7,6 +7,7 @@ export class SpeechDetectionService {
   private isDetecting: boolean = false;
   private onSpeechDetected: () => void;
   private animationFrame: number | null = null;
+  private cleanupHandlers: Array<() => void> = [];
   
   // Speech detection parameters (mutable to allow runtime tuning)
   private SPEECH_THRESHOLD = 0.01; // Adjust based on testing
@@ -33,18 +34,21 @@ export class SpeechDetectionService {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 1
         }
       });
 
       // Create audio context
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      await this.resumeAudioContextIfNeeded();
+      this.configurePlatformDefaults();
       this.analyser = this.audioContext.createAnalyser();
       this.microphone = this.audioContext.createMediaStreamSource(this.stream);
 
       // Configure analyser
-      this.analyser.fftSize = 256;
-      this.analyser.smoothingTimeConstant = 0.8;
+      this.analyser.fftSize = 1024; // Larger window helps stabilize RMS on Android
+      this.analyser.smoothingTimeConstant = 0.6;
       this.microphone.connect(this.analyser);
 
       this.isDetecting = true;
@@ -94,6 +98,14 @@ export class SpeechDetectionService {
       this.stream = null;
     }
 
+    // Clean up listeners
+    if (this.cleanupHandlers.length) {
+      this.cleanupHandlers.forEach(dispose => {
+        try { dispose(); } catch {}
+      });
+      this.cleanupHandlers = [];
+    }
+
     console.log('Speech detection stopped');
   }
 
@@ -102,18 +114,30 @@ export class SpeechDetectionService {
       return;
     }
 
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    // Use time-domain RMS which is more reliable on Android than frequency averages
+    const timeDomain = new Uint8Array(this.analyser.fftSize);
+    let noiseFloor = 0.005; // adaptive baseline
+    const noiseSmoothing = 0.95;
     
     const analyze = () => {
       if (!this.isDetecting || !this.analyser) {
         return;
       }
 
-      this.analyser.getByteFrequencyData(dataArray);
+      this.analyser.getByteTimeDomainData(timeDomain);
       
-      // Calculate average volume
-      const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-      const normalizedVolume = average / 255;
+      // Compute RMS from time-domain data (0..1)
+      let sumSquares = 0;
+      for (let i = 0; i < timeDomain.length; i++) {
+        const v = (timeDomain[i] - 128) / 128; // center around 0
+        sumSquares += v * v;
+      }
+      const rms = Math.sqrt(sumSquares / timeDomain.length);
+      
+      // Adaptive noise floor to handle different device mic baselines
+      noiseFloor = noiseSmoothing * noiseFloor + (1 - noiseSmoothing) * rms;
+      const levelAboveNoise = Math.max(0, rms - noiseFloor);
+      const normalizedVolume = levelAboveNoise;
 
       const now = Date.now();
       
@@ -165,6 +189,41 @@ export class SpeechDetectionService {
 
   public setMinSpeechDuration(duration: number): void {
     this.MIN_SPEECH_DURATION = Math.max(50, duration);
+  }
+
+  private isAndroid(): boolean {
+    return /Android/i.test(navigator.userAgent || '');
+  }
+
+  private async resumeAudioContextIfNeeded(): Promise<void> {
+    if (!this.audioContext) return;
+    const tryResume = async () => {
+      if (!this.audioContext) return;
+      if (this.audioContext.state === 'suspended') {
+        try { await this.audioContext.resume(); } catch {}
+      }
+    };
+
+    await tryResume();
+
+    // Resume on interactions/visibility changes (common on Android)
+    const onInteract = () => { tryResume(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') { tryResume(); } };
+    window.addEventListener('touchstart', onInteract, { passive: true } as any);
+    window.addEventListener('click', onInteract, { passive: true } as any);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    this.cleanupHandlers.push(() => window.removeEventListener('touchstart', onInteract));
+    this.cleanupHandlers.push(() => window.removeEventListener('click', onInteract));
+    this.cleanupHandlers.push(() => document.removeEventListener('visibilitychange', onVisibility));
+  }
+
+  private configurePlatformDefaults(): void {
+    // Android often reports lower RMS; relax thresholds slightly
+    if (this.isAndroid()) {
+      this.SPEECH_THRESHOLD = Math.max(0.002, this.SPEECH_THRESHOLD * 0.6);
+      this.MIN_SPEECH_DURATION = Math.min(350, Math.max(150, this.MIN_SPEECH_DURATION));
+    }
   }
 }
 
