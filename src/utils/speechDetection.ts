@@ -6,6 +6,7 @@ export class SpeechDetectionService {
   private stream: MediaStream | null = null;
   private isDetecting: boolean = false;
   private onSpeechDetected: () => void;
+  private onSpeechEnd?: () => void;
   private animationFrame: number | null = null;
   private cleanupHandlers: Array<() => void> = [];
   
@@ -18,8 +19,9 @@ export class SpeechDetectionService {
   private lastSpeechTime: number = 0;
   private isCurrentlySpeaking: boolean = false;
 
-  constructor(onSpeechDetected: () => void) {
+  constructor(onSpeechDetected: () => void, onSpeechEnd?: () => void) {
     this.onSpeechDetected = onSpeechDetected;
+    this.onSpeechEnd = onSpeechEnd;
   }
 
   public async startDetection(): Promise<void> {
@@ -168,6 +170,9 @@ export class SpeechDetectionService {
             console.log('Speech ended');
             this.isCurrentlySpeaking = false;
             this.speechStartTime = null;
+            if (this.onSpeechEnd) {
+              try { this.onSpeechEnd(); } catch {}
+            }
           }
         }
       }

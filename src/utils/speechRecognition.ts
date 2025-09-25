@@ -4,13 +4,16 @@ export class SpeechRecognitionService {
   private isListening: boolean = false;
   private onResult: (text: string) => void;
   private onError: (error: string) => void;
+  private onStartCb?: () => void;
+  private onEndCb?: () => void;
   private accumulatedText: string = '';
   private speechTimeout: any = null;
-  private shouldAutoRestart: boolean = true;
 
-  constructor(onResult: (text: string) => void, onError: (error: string) => void) {
+  constructor(onResult: (text: string) => void, onError: (error: string) => void, onStart?: () => void, onEnd?: () => void) {
     this.onResult = onResult;
     this.onError = onError;
+    this.onStartCb = onStart;
+    this.onEndCb = onEnd;
     this.initializeRecognition();
   }
 
@@ -35,6 +38,9 @@ export class SpeechRecognitionService {
     this.recognition.onstart = () => {
       this.isListening = true;
       console.log('Speech recognition started');
+      if (this.onStartCb) {
+        try { this.onStartCb(); } catch {}
+      }
     };
 
     this.recognition.onresult = (event: any) => {
@@ -116,9 +122,9 @@ export class SpeechRecognitionService {
       this.clearAccumulatedText(); // Clear any accumulated text on error
       
       // Auto-restart for recoverable errors
-      if (shouldRestart && this.shouldAutoRestart) {
+      if (shouldRestart) {
         setTimeout(() => {
-          if (!this.isListening && this.shouldAutoRestart) {
+          if (!this.isListening) {
             console.log('Auto-restarting speech recognition after error...');
             this.startListening().catch(console.error);
           }
@@ -129,6 +135,9 @@ export class SpeechRecognitionService {
     this.recognition.onend = () => {
       this.isListening = false;
       console.log('Speech recognition ended - restarting...');
+      if (this.onEndCb) {
+        try { this.onEndCb(); } catch {}
+      }
       
       // Process any remaining accumulated text before restarting
       if (this.accumulatedText.trim().length > 0) {
@@ -138,22 +147,20 @@ export class SpeechRecognitionService {
       }
       
       // Automatically restart listening after a short delay
-      if (this.shouldAutoRestart) {
-        setTimeout(() => {
-          if (!this.isListening && this.shouldAutoRestart) {
-            console.log('Auto-restarting speech recognition from onend...');
-            this.startListening().catch((error) => {
-              console.error('Failed to restart speech recognition:', error);
-              // Try again after a longer delay if restart fails
-              setTimeout(() => {
-                if (!this.isListening && this.shouldAutoRestart) {
-                  this.startListening().catch(console.error);
-                }
-              }, 3000);
-            });
-          }
-        }, 500); // Shorter delay for faster restart
-      }
+      setTimeout(() => {
+        if (!this.isListening) {
+          console.log('Auto-restarting speech recognition from onend...');
+          this.startListening().catch((error) => {
+            console.error('Failed to restart speech recognition:', error);
+            // Try again after a longer delay if restart fails
+            setTimeout(() => {
+              if (!this.isListening) {
+                this.startListening().catch(console.error);
+              }
+            }, 3000);
+          });
+        }
+      }, 500); // Shorter delay for faster restart
     };
   }
 
@@ -205,14 +212,6 @@ export class SpeechRecognitionService {
 
   public isActive(): boolean {
     return this.isListening;
-  }
-
-  public pauseAutoRestart(): void {
-    this.shouldAutoRestart = false;
-  }
-
-  public resumeAutoRestart(): void {
-    this.shouldAutoRestart = true;
   }
 
   private isSentenceComplete(text: string): boolean {
