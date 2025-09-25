@@ -120,6 +120,15 @@ function App() {
         setIsAvatarSpeaking(false);
         
         console.log('Avatar interrupted successfully');
+
+        // Start recognition immediately upon interrupt
+        if (speechService.current && !isListening && !isAiProcessing) {
+          // Ensure recognition owns mic now: stop detection to free resources
+          try { speechDetectionService.current?.stopDetection(); } catch {}
+          // Resume auto-restart for recognition during user speaking
+          speechService.current.resumeAutoRestart?.();
+          await handleStartListening();
+        }
       } catch (error) {
         console.error('Error interrupting avatar:', error);
       }
@@ -660,6 +669,13 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           // Update conversation state to avatar speaking
           setConversationState('avatar-speaking');
           setIsAvatarSpeaking(true);
+          // While avatar is speaking, don't auto-restart recognition; enable detection
+          try { speechService.current?.pauseAutoRestart?.(); } catch {}
+          try {
+            if (speechDetectionService.current && !speechDetectionService.current.isActive()) {
+              await speechDetectionService.current.startDetection();
+            }
+          } catch {}
           
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
         } catch (err: any) {
@@ -856,6 +872,9 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     // Update conversation state
     setIsAvatarSpeaking(false);
     setConversationState('idle');
+    // After avatar stops, stop detection and resume recognition
+    try { speechDetectionService.current?.stopDetection(); } catch {}
+    try { speechService.current?.resumeAutoRestart?.(); } catch {}
     
     // Only auto-start listening if user is not already listening and not processing AI
     if (!isListening && !isAiProcessing) {

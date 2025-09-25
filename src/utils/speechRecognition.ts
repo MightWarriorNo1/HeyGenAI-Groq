@@ -6,6 +6,7 @@ export class SpeechRecognitionService {
   private onError: (error: string) => void;
   private accumulatedText: string = '';
   private speechTimeout: any = null;
+  private shouldAutoRestart: boolean = true;
 
   constructor(onResult: (text: string) => void, onError: (error: string) => void) {
     this.onResult = onResult;
@@ -115,9 +116,9 @@ export class SpeechRecognitionService {
       this.clearAccumulatedText(); // Clear any accumulated text on error
       
       // Auto-restart for recoverable errors
-      if (shouldRestart) {
+      if (shouldRestart && this.shouldAutoRestart) {
         setTimeout(() => {
-          if (!this.isListening) {
+          if (!this.isListening && this.shouldAutoRestart) {
             console.log('Auto-restarting speech recognition after error...');
             this.startListening().catch(console.error);
           }
@@ -137,20 +138,22 @@ export class SpeechRecognitionService {
       }
       
       // Automatically restart listening after a short delay
-      setTimeout(() => {
-        if (!this.isListening) {
-          console.log('Auto-restarting speech recognition from onend...');
-          this.startListening().catch((error) => {
-            console.error('Failed to restart speech recognition:', error);
-            // Try again after a longer delay if restart fails
-            setTimeout(() => {
-              if (!this.isListening) {
-                this.startListening().catch(console.error);
-              }
-            }, 3000);
-          });
-        }
-      }, 500); // Shorter delay for faster restart
+      if (this.shouldAutoRestart) {
+        setTimeout(() => {
+          if (!this.isListening && this.shouldAutoRestart) {
+            console.log('Auto-restarting speech recognition from onend...');
+            this.startListening().catch((error) => {
+              console.error('Failed to restart speech recognition:', error);
+              // Try again after a longer delay if restart fails
+              setTimeout(() => {
+                if (!this.isListening && this.shouldAutoRestart) {
+                  this.startListening().catch(console.error);
+                }
+              }, 3000);
+            });
+          }
+        }, 500); // Shorter delay for faster restart
+      }
     };
   }
 
@@ -202,6 +205,14 @@ export class SpeechRecognitionService {
 
   public isActive(): boolean {
     return this.isListening;
+  }
+
+  public pauseAutoRestart(): void {
+    this.shouldAutoRestart = false;
+  }
+
+  public resumeAutoRestart(): void {
+    this.shouldAutoRestart = true;
   }
 
   private isSentenceComplete(text: string): boolean {
