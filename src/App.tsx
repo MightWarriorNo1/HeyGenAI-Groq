@@ -106,25 +106,22 @@ function App() {
 
 
   // Function to handle speech detection (when user starts speaking)
-  const handleUserSpeechDetected = async () => {
-    console.log('User speech detected - interrupting avatar');
+  // const handleUserSpeechDetected = async () => {
+  //   console.log('User speech detected - interrupting avatar');
     
-    // Only interrupt if avatar is currently speaking
-    if (isAvatarSpeaking && conversationState === 'avatar-speaking') {
-      try {
-        // Stop avatar speech immediately
-        await stopAvatarSpeech();
+  //   if (isAvatarSpeaking && conversationState === 'avatar-speaking') {
+  //     try {
+  //       await stopAvatarSpeech();
         
-        // Update conversation state
-        setConversationState('user-speaking');
-        setIsAvatarSpeaking(false);
+  //       setConversationState('user-speaking');
+  //       setIsAvatarSpeaking(false);
         
-        console.log('Avatar interrupted successfully');
-      } catch (error) {
-        console.error('Error interrupting avatar:', error);
-      }
-    }
-  };
+  //       console.log('Avatar interrupted successfully');
+  //     } catch (error) {
+  //       console.error('Error interrupting avatar:', error);
+  //     }
+  //   }
+  // };
 
   // Function to handle speech recognition
   const handleStartListening = async () => {
