@@ -5,9 +5,9 @@ import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/strea
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
-import { isAndroid } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { SpeechRecognitionService } from './utils/speechRecognition';
+import { SpeechDetectionService } from './utils/speechDetection';
 import AvatarTest from './components/reusable/AvatarTest';
 
 interface ChatMessageType {
@@ -25,7 +25,6 @@ function App() {
 
   const [isListening, setIsListening] = useState<boolean>(false);
   const [avatarSpeech, setAvatarSpeech] = useState<string>('');
-  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const [stream, setStream] = useState<MediaStream>();
   const [data, setData] = useState<NewSessionData>();
   const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
@@ -38,12 +37,12 @@ function App() {
   const nextAllowedAnalysisAtRef = useRef<number>(0);
   const avatar = useRef<StreamingAvatarApi | null>(null);
   const speechService = useRef<SpeechRecognitionService | null>(null);
+  const speechDetectionService = useRef<SpeechDetectionService | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isAvatarFullScreen, setIsAvatarFullScreen] = useState<boolean>(false);
   const [hasUserStartedChatting, setHasUserStartedChatting] = useState<boolean>(false);
   const [videoNeedsInteraction, setVideoNeedsInteraction] = useState<boolean>(false);
   const [showAvatarTest, setShowAvatarTest] = useState<boolean>(false);
-  const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
   const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
     // {
     //   role: 'user',
@@ -93,6 +92,8 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [conversationState, setConversationState] = useState<'idle' | 'avatar-speaking' | 'user-speaking' | 'processing'>('idle');
   let timeout: any;
 
 
@@ -104,6 +105,27 @@ function App() {
   });
 
 
+  // Function to handle speech detection (when user starts speaking)
+  const handleUserSpeechDetected = async () => {
+    console.log('User speech detected - interrupting avatar');
+    
+    // Only interrupt if avatar is currently speaking
+    if (isAvatarSpeaking && conversationState === 'avatar-speaking') {
+      try {
+        // Stop avatar speech immediately
+        await stopAvatarSpeech();
+        
+        // Update conversation state
+        setConversationState('user-speaking');
+        setIsAvatarSpeaking(false);
+        
+        console.log('Avatar interrupted successfully');
+      } catch (error) {
+        console.error('Error interrupting avatar:', error);
+      }
+    }
+  };
+
   // Function to handle speech recognition
   const handleStartListening = async () => {
     console.log('handleStartListening called', { speechService: !!speechService.current, isListening, isAiProcessing });
@@ -112,6 +134,7 @@ function App() {
         console.log('Starting speech recognition...');
         await speechService.current.startListening();
         setIsListening(true);
+        setConversationState('user-speaking');
         console.log('Speech recognition started successfully');
       } catch (error) {
         console.error('Error starting speech recognition:', error);
@@ -134,8 +157,8 @@ function App() {
       // Mark that user has started chatting
       setHasUserStartedChatting(true);
       
-      // If avatar was speaking and got interrupted, acknowledge the interruption
-      const wasInterrupted = isAvatarSpeaking;
+      // Update conversation state to processing
+      setConversationState('processing');
       
       // Add user message to chat
       const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
@@ -144,8 +167,13 @@ function App() {
       // Set loading state
       setIsAiProcessing(true);
 
-      // Build system message with interruption awareness
-      let systemMessage = `You are iSolveUrProblems, a hilariously helpful AI assistant with the personality of a witty comedian who happens to be incredibly smart. Your mission: solve problems while making people laugh out loud!
+      // Get AI response using xAI with full conversation context
+      const aiResponse = await openai.chat.completions.create({
+        model: 'grok-2-latest',
+        messages: [
+          { 
+            role: 'system', 
+            content: `You are iSolveUrProblems, a hilariously helpful AI assistant with the personality of a witty comedian who happens to be incredibly smart. Your mission: solve problems while making people laugh out loud!
 
 PERSONALITY TRAITS:
 - Crack jokes, puns, and witty observations constantly
@@ -169,20 +197,7 @@ RESPONSE STYLE:
 - Keep responses helpful but entertaining
 - If someone shares media, react with humor while being genuinely helpful
 
-Remember: You're not just solving problems, you're putting on a comedy show while being genuinely useful!`;
-
-      // If the user interrupted the avatar, add context about the interruption
-      if (wasInterrupted) {
-        systemMessage += `\n\nIMPORTANT: The user just interrupted you while you were speaking. Acknowledge this naturally and respond to their new input. Be gracious about the interruption - it's part of natural conversation!`;
-      }
-
-      // Get AI response using xAI with full conversation context
-      const aiResponse = await openai.chat.completions.create({
-        model: 'grok-2-latest',
-        messages: [
-          { 
-            role: 'system', 
-            content: systemMessage
+Remember: You're not just solving problems, you're putting on a comedy show while being genuinely useful!` 
           },
           ...updatedMessages.map(msg => {
             if (msg.media) {
@@ -209,6 +224,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     } catch (error: any) {
       console.error('Error processing speech result:', error);
       setIsAiProcessing(false);
+      setConversationState('idle');
       toast({
         variant: "destructive",
         title: "Uh oh! Something went wrong.",
@@ -226,40 +242,6 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       description: error,
     });
     setIsListening(false);
-  };
-
-  // Function to handle user interruption while avatar is speaking
-  const handleUserInterrupt = async () => {
-    console.log('User interrupted avatar speech');
-    if (isAvatarSpeaking && avatar.current && data?.sessionId) {
-      try {
-        // Stop the avatar's current speech
-        await avatar.current.interrupt({ 
-          interruptRequest: { 
-            sessionId: data.sessionId 
-          } 
-        });
-        
-        // Clear the speech text and update state
-        setAvatarSpeech('');
-        setIsAvatarSpeaking(false);
-        
-        // Update speech recognition service
-        if (speechService.current) {
-          speechService.current.setAvatarSpeaking(false);
-        }
-        
-        console.log('Avatar speech interrupted successfully');
-      } catch (error) {
-        console.error('Error interrupting avatar speech:', error);
-        // Even if API call fails, update local state
-        setAvatarSpeech('');
-        setIsAvatarSpeaking(false);
-        if (speechService.current) {
-          speechService.current.setAvatarSpeaking(false);
-        }
-      }
-    }
   };
 
   // Function to handle file uploads
@@ -614,8 +596,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   useEffect(() => {
     speechService.current = new SpeechRecognitionService(
       handleSpeechResult,
-      handleSpeechError,
-      handleUserInterrupt
+      handleSpeechError
     );
 
     return () => {
@@ -625,61 +606,36 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     };
   }, []);
 
-  // Check microphone permission using Permissions API where available
+  // Initialize speech detection service
   useEffect(() => {
-    async function checkMicPermission() {
-      try {
-        const anyNavigator = navigator as any;
-        if (anyNavigator && anyNavigator.permissions && anyNavigator.permissions.query) {
-          const status = await anyNavigator.permissions.query({ name: 'microphone' } as any);
-          setMicPermission((status.state as any) || 'prompt');
-          status.onchange = () => {
-            setMicPermission((status.state as any) || 'prompt');
-          };
-        } else {
-          // Fallback: assume permission prompt state
-          setMicPermission('prompt');
-        }
-      } catch {
-        setMicPermission('prompt');
-      }
-    }
-    checkMicPermission();
-  }, []);
+    speechDetectionService.current = new SpeechDetectionService(
+      handleUserSpeechDetected
+    );
 
-  // Helper to request mic access on user gesture/button
-  const requestMicrophoneAccess = async () => {
-    try {
-      await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-      setMicPermission('granted');
-      if (speechService.current && !isListening && !isAiProcessing) {
-        await speechService.current.startListening();
+    return () => {
+      if (speechDetectionService.current) {
+        speechDetectionService.current.stopDetection();
       }
-      toast({ title: 'Microphone enabled' });
-    } catch (e: any) {
-      console.error('Microphone permission request failed:', e);
-      setMicPermission('denied');
-      toast({
-        variant: 'destructive',
-        title: 'Microphone access denied',
-        description: 'Please allow microphone access in your browser settings and try again.'
-      });
-    }
-  };
+    };
+  }, []);
 
   // Auto-start continuous listening when avatar is running
   useEffect(() => {
-    if (isAvatarRunning && speechService.current && !isListening && !isAiProcessing && !isAvatarSpeaking) {
+    if (isAvatarRunning && speechService.current && !isListening && !isAiProcessing) {
       console.log('Auto-starting continuous speech recognition...');
       handleStartListening();
     }
-  }, [isAvatarRunning, isListening, isAiProcessing, isAvatarSpeaking]);
+  }, [isAvatarRunning, isListening, isAiProcessing]);
+
+  // Auto-start speech detection when avatar is running
+  useEffect(() => {
+    if (isAvatarRunning && speechDetectionService.current && !speechDetectionService.current.isActive()) {
+      console.log('Auto-starting speech detection...');
+      speechDetectionService.current.startDetection().catch(error => {
+        console.error('Failed to start speech detection:', error);
+      });
+    }
+  }, [isAvatarRunning]);
 
   // Periodic check to ensure speech recognition stays active
   useEffect(() => {
@@ -701,39 +657,15 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     async function speak() {
       if (avatarSpeech && data?.sessionId) {
         try {
-          // Set avatar speaking state
+          // Update conversation state to avatar speaking
+          setConversationState('avatar-speaking');
           setIsAvatarSpeaking(true);
-          if (speechService.current) {
-            speechService.current.setAvatarSpeaking(true);
-            // Pause listening while avatar speaks to avoid feedback/echo
-            speechService.current.stopListening();
-          }
           
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
-          
-          // Avatar finished speaking
-          setIsAvatarSpeaking(false);
-          if (speechService.current) {
-            speechService.current.setAvatarSpeaking(false);
-            // Resume listening shortly after finishing
-            setTimeout(() => {
-              if (speechService.current && isAvatarRunning && !isAiProcessing) {
-                speechService.current.startListening().catch(console.error);
-              }
-            }, 400);
-          }
         } catch (err: any) {
           console.error(err);
-          // Reset speaking state on error
+          setConversationState('idle');
           setIsAvatarSpeaking(false);
-          if (speechService.current) {
-            speechService.current.setAvatarSpeaking(false);
-            setTimeout(() => {
-              if (speechService.current && isAvatarRunning && !isAiProcessing) {
-                speechService.current.startListening().catch(console.error);
-              }
-            }, 600);
-          }
         }
       }
     }
@@ -920,6 +852,11 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   // Avatar stop talking event handler
   const handleAvatarStopTalking = (e: any) => {
     console.log("Avatar stopped talking", e);
+    
+    // Update conversation state
+    setIsAvatarSpeaking(false);
+    setConversationState('idle');
+    
     // Only auto-start listening if user is not already listening and not processing AI
     if (!isListening && !isAiProcessing) {
       timeout = setTimeout(async () => {
@@ -1028,12 +965,10 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           } 
         });
         
-        // Clear the speech text and update speaking state
+        // Clear the speech text and update conversation state
         setAvatarSpeech('');
         setIsAvatarSpeaking(false);
-        if (speechService.current) {
-          speechService.current.setAvatarSpeaking(false);
-        }
+        setConversationState('idle');
         
       toast({
           title: "Speech Stopped",
@@ -1043,9 +978,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         // If no active session, just clear the speech text
         setAvatarSpeech('');
         setIsAvatarSpeaking(false);
-        if (speechService.current) {
-          speechService.current.setAvatarSpeaking(false);
-        }
+        setConversationState('idle');
         toast({
           title: "Speech Stopped",
           description: "Avatar has stopped talking",
@@ -1053,12 +986,10 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       }
     } catch (error) {
       console.error('Error stopping avatar speech:', error);
-      // Even if API call fails, clear the speech text and update state
+      // Even if API call fails, clear the speech text
       setAvatarSpeech('');
       setIsAvatarSpeaking(false);
-      if (speechService.current) {
-        speechService.current.setAvatarSpeaking(false);
-      }
+      setConversationState('idle');
       toast({
         title: "Speech Stopped",
         description: "Avatar has stopped talking",
@@ -1173,24 +1104,6 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
           </div>
         </div>
 
-        {/* Mic permission banner */}
-        {isAvatarRunning && micPermission !== 'granted' && (
-          <div className="fixed top-[56px] left-0 right-0 z-30">
-            <div className="mx-2 sm:mx-auto sm:max-w-md bg-red-500 text-white rounded-xl shadow-xl border border-white/20 px-4 py-3 flex items-start gap-3">
-              <div className="flex-1">
-                <div className="font-semibold text-sm">Microphone access required</div>
-                <div className="text-xs opacity-90">Tap Enable and allow mic permission so the avatar can hear you.</div>
-              </div>
-              <button
-                onClick={requestMicrophoneAccess}
-                className="px-3 py-1.5 bg-white/90 text-red-700 rounded-lg text-xs font-semibold hover:bg-white"
-              >
-                Enable
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Main Content Area - Full width video container */}
         <div className="w-full h-screen pt-16 sm:pt-20">
           {/* Video Container - Full screen */}
@@ -1218,50 +1131,14 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
             </div>
           </div>
         )}
-            {/* Chat Now indicator - clickable only on Android, disappears when user starts talking */}
+            {/* Start Chat indicator - non-clickable, disappears when user starts talking */}
             {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !hasUserStartedChatting) && (
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
-                <div
-                  className={`px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 ${isAndroid() ? 'cursor-pointer pointer-events-auto' : 'pointer-events-none'}`}
-                  onClick={isAndroid() ? async () => {
-                    // Mark chat as started and try to ensure video is playing (Android autoplay)
-                    setHasUserStartedChatting(true);
-                    try {
-                      if (mediaStream.current) {
-                        await mediaStream.current.play();
-                      }
-                    } catch {}
-
-                    // Explicitly request mic permission and start listening on user gesture
-                    try {
-                      await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                          echoCancellation: true,
-                          noiseSuppression: true,
-                          autoGainControl: true
-                        }
-                      });
-                      setMicPermission('granted');
-                      if (speechService.current && !isListening && !isAiProcessing) {
-                        await speechService.current.startListening();
-                      }
-                    } catch (e: any) {
-                      console.error('Android mic permission error:', e);
-                      setMicPermission('denied');
-                      toast({
-                        variant: "destructive",
-                        title: "Microphone permission required",
-                        description: "Please allow microphone access to talk to the avatar.",
-                      });
-                    }
-                  } : undefined}
-                  role={isAndroid() ? 'button' : undefined}
-                  aria-disabled={!isAndroid()}
-                >
-                  Chat Now
-                </div>
-              </div>
-            )}
+                <div className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 pointer-events-none">
+                  Start Chat
+            </div>
+          </div>
+        )}
 
 
             {/* Control buttons when user has started chatting */}
@@ -1327,35 +1204,20 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         {/* Avatar Control Buttons - Only show Stop button when user has started chatting */}
         {isAvatarRunning && !startAvatarLoading && hasUserStartedChatting && (
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
-            <div className="flex flex-col items-center gap-2">
-              {/* Mic status badge */}
-              <div className={`px-3 py-1 rounded-full text-xs font-medium shadow-md border border-white/20 backdrop-blur-sm ${isListening ? 'bg-green-500/90 text-white' : 'bg-yellow-500/90 text-white'}`}>
-                {isListening ? 'Mic: Listening' : (isAiProcessing ? 'AI: Thinking' : 'Mic: Idle')}
-              </div>
-              {/* Avatar Speaking Indicator */}
-              {/* {isAvatarSpeaking && (
-                <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-xs sm:text-sm shadow-lg backdrop-blur-sm border border-white/20">
-                  <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                  <span>Avatar Speaking - You can interrupt</span>
-                </div>
-              )}
-               */}
-              {/* Stop Button */}
-              <div className="flex gap-2 sm:gap-3">
+            <div className="flex gap-2 sm:gap-3">
                 <button
-                  onClick={stopAvatarSpeech}
-                  className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl backdrop-blur-sm border border-white/20"
-                >
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
-                  </svg>
-                  <span className="hidden sm:inline">Stop Talking</span>
-                  <span className="sm:hidden">Stop</span>
+                onClick={stopAvatarSpeech}
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl backdrop-blur-sm border border-white/20"
+              >
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+                </svg>
+                <span className="hidden sm:inline">Stop Talking</span>
+                <span className="sm:hidden">Stop</span>
                 </button>
               </div>
             </div>
-          </div>
         )}
 
         {/* Loading indicator when avatar is starting automatically */}
