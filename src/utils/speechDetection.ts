@@ -12,7 +12,6 @@ export class SpeechDetectionService {
   private SPEECH_THRESHOLD = 0.01; // Adjust based on testing
   private SILENCE_DURATION = 1000; // ms of silence before considering speech ended
   private MIN_SPEECH_DURATION = 200; // ms of speech before triggering
-  private ANALYSIS_INTERVAL = 100; // ms between analysis
   
   private speechStartTime: number | null = null;
   private lastSpeechTime: number = 0;
