@@ -4,16 +4,15 @@ export class SpeechRecognitionService {
   private isListening: boolean = false;
   private onResult: (text: string) => void;
   private onError: (error: string) => void;
-  private onStartCb?: () => void;
-  private onEndCb?: () => void;
   private accumulatedText: string = '';
   private speechTimeout: any = null;
+  private restartTimeout: any = null;
+  private stoppedByUser: boolean = false;
+  private isAndroid: boolean = /Android/i.test(navigator.userAgent || '');
 
-  constructor(onResult: (text: string) => void, onError: (error: string) => void, onStart?: () => void, onEnd?: () => void) {
+  constructor(onResult: (text: string) => void, onError: (error: string) => void) {
     this.onResult = onResult;
     this.onError = onError;
-    this.onStartCb = onStart;
-    this.onEndCb = onEnd;
     this.initializeRecognition();
   }
 
@@ -29,18 +28,17 @@ export class SpeechRecognitionService {
     this.recognition = new SpeechRecognition();
 
     // Configure recognition settings
-    this.recognition.continuous = true; // Keep listening continuously
-    this.recognition.interimResults = true; // Get interim results to accumulate speech
+    // Android Chrome/WebView has unreliable continuous mode; prefer manual restarts
+    this.recognition.continuous = this.isAndroid ? false : true;
+    this.recognition.interimResults = true; // Keep interim results for better UX
     this.recognition.lang = 'en-US'; // Set language
     this.recognition.maxAlternatives = 1; // Only return best result
 
     // Set up event handlers
     this.recognition.onstart = () => {
       this.isListening = true;
+      this.stoppedByUser = false;
       console.log('Speech recognition started');
-      if (this.onStartCb) {
-        try { this.onStartCb(); } catch {}
-      }
     };
 
     this.recognition.onresult = (event: any) => {
@@ -122,9 +120,12 @@ export class SpeechRecognitionService {
       this.clearAccumulatedText(); // Clear any accumulated text on error
       
       // Auto-restart for recoverable errors
-      if (shouldRestart) {
-        setTimeout(() => {
-          if (!this.isListening) {
+      if (shouldRestart && !this.stoppedByUser) {
+        if (this.restartTimeout) {
+          clearTimeout(this.restartTimeout);
+        }
+        this.restartTimeout = setTimeout(() => {
+          if (!this.isListening && !this.stoppedByUser) {
             console.log('Auto-restarting speech recognition after error...');
             this.startListening().catch(console.error);
           }
@@ -134,10 +135,7 @@ export class SpeechRecognitionService {
 
     this.recognition.onend = () => {
       this.isListening = false;
-      console.log('Speech recognition ended - restarting...');
-      if (this.onEndCb) {
-        try { this.onEndCb(); } catch {}
-      }
+      console.log('Speech recognition ended');
       
       // Process any remaining accumulated text before restarting
       if (this.accumulatedText.trim().length > 0) {
@@ -146,21 +144,28 @@ export class SpeechRecognitionService {
         this.accumulatedText = '';
       }
       
-      // Automatically restart listening after a short delay
-      setTimeout(() => {
-        if (!this.isListening) {
-          console.log('Auto-restarting speech recognition from onend...');
-          this.startListening().catch((error) => {
-            console.error('Failed to restart speech recognition:', error);
-            // Try again after a longer delay if restart fails
-            setTimeout(() => {
-              if (!this.isListening) {
-                this.startListening().catch(console.error);
-              }
-            }, 3000);
-          });
+      // On Android or when continuous=false, manually restart unless user stopped it
+      if (!this.stoppedByUser) {
+        if (this.restartTimeout) {
+          clearTimeout(this.restartTimeout);
         }
-      }, 500); // Shorter delay for faster restart
+        this.restartTimeout = setTimeout(() => {
+          if (!this.isListening && !this.stoppedByUser) {
+            console.log('Auto-restarting speech recognition from onend...');
+            this.startListening().catch((error) => {
+              console.error('Failed to restart speech recognition:', error);
+              // Try again after a longer delay if restart fails
+              if (!this.stoppedByUser) {
+                this.restartTimeout = setTimeout(() => {
+                  if (!this.isListening && !this.stoppedByUser) {
+                    this.startListening().catch(console.error);
+                  }
+                }, 3000);
+              }
+            });
+          }
+        }, this.isAndroid ? 250 : 500);
+      }
     };
   }
 
@@ -168,8 +173,21 @@ export class SpeechRecognitionService {
     if (this.recognition && !this.isListening) {
       try {
         // Request microphone permission first
+        // Some Android browsers require a fresh permission prompt per session
+        try {
+          // Use Permissions API when available to detect denied state early
+          const micPerm: any = (navigator as any).permissions && (navigator as any).permissions.query
+            ? await (navigator as any).permissions.query({ name: 'microphone' as any })
+            : null;
+          if (micPerm && micPerm.state === 'denied') {
+            this.onError('Microphone permission is denied. Please enable it in site settings.');
+            return;
+          }
+        } catch {}
+
         await navigator.mediaDevices.getUserMedia({ audio: true });
         console.log('Starting speech recognition...');
+        this.stoppedByUser = false;
         this.recognition.start();
       } catch (error: any) {
         console.error('Microphone access error:', error);
@@ -189,9 +207,23 @@ export class SpeechRecognitionService {
   }
 
   public stopListening(): void {
-    if (this.recognition && this.isListening) {
-      this.recognition.stop();
+    this.stoppedByUser = true;
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
     }
+    this.clearAccumulatedText();
+    if (this.recognition) {
+      try {
+        // abort() tends to stop immediately; stop() waits for final results
+        if (this.isListening) {
+          this.recognition.abort();
+        } else {
+          this.recognition.stop();
+        }
+      } catch {}
+    }
+    this.isListening = false;
   }
 
   public isCurrentlyListening(): boolean {
