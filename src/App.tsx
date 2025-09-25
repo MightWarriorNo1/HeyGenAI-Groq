@@ -93,7 +93,6 @@ function App() {
   const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
-  const [conversationState, setConversationState] = useState<'idle' | 'avatar-speaking' | 'user-speaking' | 'processing'>('idle');
   let timeout: any;
 
 
@@ -131,7 +130,7 @@ function App() {
         console.log('Starting speech recognition...');
         await speechService.current.startListening();
         setIsListening(true);
-        setConversationState('user-speaking');
+        // conversation state removed
         console.log('Speech recognition started successfully');
       } catch (error) {
         console.error('Error starting speech recognition:', error);
@@ -155,7 +154,7 @@ function App() {
       setHasUserStartedChatting(true);
       
       // Update conversation state to processing
-      setConversationState('processing');
+      // conversation state removed
       
       // Add user message to chat
       const updatedMessages = [...chatMessages, { role: 'user', message: transcript }];
@@ -221,7 +220,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     } catch (error: any) {
       console.error('Error processing speech result:', error);
       setIsAiProcessing(false);
-      setConversationState('idle');
+      // conversation state removed
       toast({
         variant: "destructive",
         title: "Uh oh! Something went wrong.",
@@ -680,13 +679,13 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       if (avatarSpeech && data?.sessionId) {
         try {
           // Update conversation state to avatar speaking
-          setConversationState('avatar-speaking');
+          // conversation state removed
           setIsAvatarSpeaking(true);
           
           await avatar.current?.speak({ taskRequest: { text: avatarSpeech, sessionId: data?.sessionId } });
         } catch (err: any) {
           console.error(err);
-          setConversationState('idle');
+          // conversation state removed
           setIsAvatarSpeaking(false);
         }
       }
@@ -877,7 +876,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     
     // Update conversation state
     setIsAvatarSpeaking(false);
-    setConversationState('idle');
+    // conversation state removed
     
     // Only auto-start listening if user is not already listening and not processing AI
     if (!isListening && !isAiProcessing) {
@@ -990,7 +989,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         // Clear the speech text and update conversation state
         setAvatarSpeech('');
         setIsAvatarSpeaking(false);
-        setConversationState('idle');
+        // conversation state removed
         
       toast({
           title: "Speech Stopped",
@@ -1000,7 +999,6 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         // If no active session, just clear the speech text
         setAvatarSpeech('');
         setIsAvatarSpeaking(false);
-        setConversationState('idle');
         toast({
           title: "Speech Stopped",
           description: "Avatar has stopped talking",
@@ -1011,7 +1009,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       // Even if API call fails, clear the speech text
       setAvatarSpeech('');
       setIsAvatarSpeaking(false);
-      setConversationState('idle');
+      // conversation state removed
       toast({
         title: "Speech Stopped",
         description: "Avatar has stopped talking",
