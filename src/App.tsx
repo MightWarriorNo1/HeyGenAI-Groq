@@ -617,7 +617,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     if (sessionState === StreamingAvatarSessionState.CONNECTED && !isVoiceChatActive) {
       startVoiceChat();
     }
-    
+
     return () => {
       if (isVoiceChatActive) {
         stopVoiceChat();
@@ -799,7 +799,8 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         const token = response.data.data.token;
 
         if (!avatar.current) {
-          avatar.current = new StreamingAvatar({ token });
+          const StreamingAvatarCtor: any = (StreamingAvatar as any)?.default ?? (StreamingAvatar as any);
+          avatar.current = new StreamingAvatarCtor({ token });
         }
         
         // Set up event handlers using SDK v2
@@ -882,7 +883,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         // Clear the speech text
         setAvatarSpeech('');
         
-        toast({
+      toast({
           title: "Speech Stopped",
           description: "Avatar has stopped talking",
         });
@@ -899,11 +900,11 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
       // Even if API call fails, clear the speech text
 
 
-        setAvatarSpeech('');
-        toast({
-          title: "Speech Stopped",
-          description: "Avatar has stopped talking",
-        });
+      setAvatarSpeech('');
+      toast({
+        title: "Speech Stopped",
+        description: "Avatar has stopped talking",
+      });
     }
   };
 
@@ -1046,7 +1047,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
                 <div className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 pointer-events-none">
                   {userIsListening ? 'Listening...' : 'Start Chat'}
-                </div>
+            </div>
           </div>
         )}
 
