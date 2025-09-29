@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react';
 
 interface MicButtonProps {
   isSpeaking: boolean;
-  onClick: () => void;
   stopAvatar: () => void;
   grab: () => void;
   avatarStartLoading: boolean;
@@ -16,7 +15,6 @@ interface MicButtonProps {
 
 const MicButton = ({ 
   isSpeaking, 
-  onClick, 
   stopAvatar, 
   grab, 
   avatarStartLoading, 

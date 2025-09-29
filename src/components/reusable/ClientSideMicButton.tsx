@@ -2,8 +2,6 @@ import { FaMicrophone, FaMicrophoneSlash } from 'react-icons/fa';
 import { useState } from 'react';
 
 interface ClientSideMicButtonProps {
-  onTranscription: (text: string) => void;
-  onError: (error: string) => void;
   className?: string;
   isVoiceChatActive: boolean;
   startVoiceChat: () => void;
@@ -11,8 +9,6 @@ interface ClientSideMicButtonProps {
 }
 
 const ClientSideMicButton = ({ 
-  onTranscription, 
-  onError, 
   className = '', 
   isVoiceChatActive, 
   startVoiceChat, 
