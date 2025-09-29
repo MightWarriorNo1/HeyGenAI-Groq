@@ -1,12 +1,12 @@
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
-// Note: we dynamically import '@heygen/streaming-avatar' at runtime for robust CJS/ESM compatibility
+import StreamingAvatar, { AvatarQuality, ElevenLabsModel, STTProvider, StreamingEvents, VoiceChatTransport, VoiceEmotion, StartAvatarRequest } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
 import { Loader2 } from 'lucide-react';
-// Removed SpeechRecognitionService - now using HeyGen streaming avatar voice chat
+// Web Speech removed in favor of HeyGen SDK voice chat
 import AvatarTest from './components/reusable/AvatarTest';
 
 interface ChatMessageType {
@@ -18,21 +18,13 @@ interface ChatMessageType {
   };
 };
 
-enum StreamingAvatarSessionState {
-  INACTIVE = "inactive",
-  CONNECTING = "connecting", 
-  CONNECTED = "connected",
-}
-
 function App() {
   //Toast
   const { toast } = useToast()
 
-  // User listening state from voice chat
-  const [userIsListening, setUserIsListening] = useState<boolean>(false);
+  const [isListening] = useState<boolean>(false);
   const [avatarSpeech, setAvatarSpeech] = useState<string>('');
   const [stream, setStream] = useState<MediaStream>();
-  const [sessionId, setSessionId] = useState<string>();
   const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
   const mediaStream = useRef<HTMLVideoElement>(null);
   const visionVideoRef = useRef<HTMLVideoElement>(null);
@@ -41,9 +33,7 @@ function App() {
   const lastSampleImageDataRef = useRef<ImageData | null>(null);
   const stabilityStartRef = useRef<number | null>(null);
   const nextAllowedAnalysisAtRef = useRef<number>(0);
-const avatar = useRef<any>(null);
-  const [sessionState, setSessionState] = useState<StreamingAvatarSessionState>(StreamingAvatarSessionState.INACTIVE);
-  // Removed speechService ref - using HeyGen built-in voice chat instead
+  const avatar = useRef<StreamingAvatar | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isAvatarFullScreen, setIsAvatarFullScreen] = useState<boolean>(false);
   const [hasUserStartedChatting, setHasUserStartedChatting] = useState<boolean>(false);
@@ -95,12 +85,9 @@ const avatar = useRef<any>(null);
   }, [visionCameraStream]);
 
 
-  // Avatar loading state for UI feedback
-  const [isAvatarStarting, setIsAvatarStarting] = useState<boolean>(false);
+  const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
+  const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
-  const [isVoiceChatActive, setIsVoiceChatActive] = useState<boolean>(false);
-  // Voice chat loading state for UI feedback
-  const [isVoiceChatLoading, setIsVoiceChatLoading] = useState<boolean>(false);
   let timeout: any;
 
 
@@ -112,71 +99,12 @@ const avatar = useRef<any>(null);
   });
 
 
-  // Function to start voice chat using SDK v2
-  const startVoiceChat = async () => {
-    if (!avatar.current || isAiProcessing) {
-      console.log('Cannot start voice chat:', { 
-        hasAvatar: !!avatar.current, 
-        isAiProcessing 
-      });
-      return;
-    }
-
-    try {
-      setIsVoiceChatLoading(true);
-      console.log('Starting voice chat...');
-      
-      // Start voice chat using the SDK method
-      await avatar.current.startVoiceChat();
-      
-      setIsVoiceChatActive(true);
-      setUserIsListening(true);
-      setIsVoiceChatLoading(false);
-      console.log('Voice chat started successfully');
-      
-    } catch (error: any) {
-      console.error('Error starting voice chat:', error);
-      setIsVoiceChatActive(false);
-      setUserIsListening(false);
-      setIsVoiceChatLoading(false);
-      handleVoiceChatError(error.message || 'Failed to start voice chat');
-    }
-  };
-
-  // Function to stop voice chat using SDK v2
-  const stopVoiceChat = () => {
-    if (avatar.current) {
-      // Stop voice chat using the SDK method
-      avatar.current.closeVoiceChat();
-    }
-    
-    setIsVoiceChatActive(false);
-    setUserIsListening(false);
-    console.log('Voice chat stopped');
-  };
+  // No Web Speech startListening; voice input handled by SDK
 
 
-  // Voice chat event handlers using SDK v2 events
-  const handleUserStartTalking = (e: any) => {
-    console.log('User started talking:', e);
-    setUserIsListening(true);
-  };
-
-  const handleUserStopTalking = (e: any) => {
-    console.log('User stopped talking:', e);
-    setUserIsListening(false);
-  };
-
-  const handleUserTalkingMessage = async (e: any) => {
-    console.log('User talking message received:', e);
-    const transcript = e.message || e.text || '';
-    if (transcript.trim()) {
-      await processUserSpeech(transcript);
-    }
-  };
-
-  // Function to process user speech from voice chat or manual speech recognition
-  const processUserSpeech = async (transcript: string) => {
+  // Function to handle speech recognition results
+  const handleSpeechResult = async (transcript: string) => {
+    console.log('Speech result received:', transcript);
     try {
       // Mark that user has started chatting
       setHasUserStartedChatting(true);
@@ -253,16 +181,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     }
   };
 
-  // Function to handle voice chat errors
-  const handleVoiceChatError = (error: string) => {
-    console.error('Voice chat error:', error);
-    toast({
-      variant: "destructive",
-      title: "Voice Chat Error",
-      description: error,
-    });
-    setUserIsListening(false);
-  };
+  // (no-op)
 
   // Function to handle file uploads
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -612,45 +531,14 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 
 
 
-  // Initialize voice chat when avatar is ready
-  useEffect(() => {
-    if (sessionState === StreamingAvatarSessionState.CONNECTED && !isVoiceChatActive) {
-      startVoiceChat();
-    }
-
-    return () => {
-      if (isVoiceChatActive) {
-        stopVoiceChat();
-      }
-    };
-  }, [sessionState]);
-
-  // Voice chat is now managed by HeyGen streaming avatar SDK
-  // Removed old speech recognition auto-start and periodic checks
-
-
-  // Default avatar configuration using SDK v2
-  const DEFAULT_CONFIG = {
-    quality: 'high',
-    avatarName: import.meta.env.VITE_HEYGEN_AVATARID || '',
-    voice: {
-      voiceId: import.meta.env.VITE_HEYGEN_VOICEID,
-      rate: 1.0,
-      emotion: 'friendly',
-    },
-    language: 'en',
-    voiceChatTransport: 'websocket',
-    sttSettings: {
-      provider: 'deepgram',
-    },
-  } as const;
+  // Removed Web Speech initialization and watchdogs
 
   // useEffect getting triggered when the avatarSpeech state is updated, basically make the avatar to talk
   useEffect(() => {
     async function speak() {
-      if (avatarSpeech && sessionId) {
+      if (avatarSpeech && avatar.current) {
         try {
-          await avatar.current?.speak({ text: avatarSpeech } as any);
+          await avatar.current.speak({ text: avatarSpeech });
         } catch (err: any) {
           console.error(err);
         }
@@ -658,7 +546,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     }
 
     speak();
-  }, [avatarSpeech, sessionId]);
+  }, [avatarSpeech]);
 
   // Bind the vision camera stream to the small overlay video when present
   useEffect(() => {
@@ -791,7 +679,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   }, [isVisionMode, visionCameraStream, isAiProcessing]);
 
 
-  // useEffect called when the component mounts, to fetch the accessToken and automatically start the avatar
+  // Initialize HeyGen StreamingAvatar and automatically start the avatar
   useEffect(() => {
     async function initializeAndStartAvatar() {
       try {
@@ -799,52 +687,38 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         const token = response.data.data.token;
 
         if (!avatar.current) {
-          const { default: StreamingAvatarCtor }: any = await import('@heygen/streaming-avatar');
-          avatar.current = new StreamingAvatarCtor({ token });
+          avatar.current = new StreamingAvatar({ token, basePath: 'https://api.heygen.com' });
         }
-        
-        // Set up event handlers using SDK v2
-        avatar.current.on('avatar_start_talking', (e: any) => {
-          console.log("Avatar started talking", e);
-        });
-        avatar.current.on('avatar_stop_talking', handleAvatarStopTalking);
-        avatar.current.on('stream_disconnected', () => {
-          console.log("Stream disconnected");
-          setSessionState(StreamingAvatarSessionState.INACTIVE);
-        });
-        avatar.current.on('stream_ready', (event: any) => {
-          console.log(">>>>> Stream ready:", event.detail);
-          setStream(event.detail);
-          setSessionId((event as any).sessionId); // Set session ID from stream ready event
-          setSessionState(StreamingAvatarSessionState.CONNECTED);
-        });
-        avatar.current.on('user_start', handleUserStartTalking as any);
-        avatar.current.on('user_stop', handleUserStopTalking as any);
-        avatar.current.on('user_end_message', async (event: any) => {
-          console.log(">>>>> User end message:", event);
-          // Handle user message completion
-        });
-        avatar.current.on('user_talking_message', handleUserTalkingMessage as any);
-        avatar.current.on('avatar_talking_message', (event: any) => {
-          console.log(">>>>> Avatar talking message:", event);
-        });
-        avatar.current.on('avatar_end_message', (event: any) => {
-          console.log(">>>>> Avatar end message:", event);
-        });
 
-        // Start avatar with voice chat configuration
-        setSessionState(StreamingAvatarSessionState.CONNECTING);
-        setIsAvatarStarting(true);
-        await avatar.current.createStartAvatar(DEFAULT_CONFIG);
-        setIsAvatarStarting(false);
+        // Wire streaming events
+        avatar.current.on(StreamingEvents.STREAM_READY, (event: any) => {
+          const media: MediaStream = event.detail;
+          setStream(media);
+        });
+        avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+          setStream(undefined);
+          setIsAvatarRunning(false);
+        });
+        avatar.current.on(StreamingEvents.USER_TALKING_MESSAGE, (event: any) => {
+          try {
+            const msg = event.detail?.message || event.detail?.data?.message;
+            if (msg) {
+              handleSpeechResult(msg);
+            }
+          } catch {}
+        });
+        avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, handleAvatarStopTalking);
+
+        // Automatically start the avatar and voice chat
+        await startAvatar();
+        await avatar.current.startVoiceChat();
 
       } catch (error: any) {
         console.error("Error initializing avatar:", error);
-        setSessionState(StreamingAvatarSessionState.INACTIVE);
         toast({
           variant: "destructive",
           title: "Uh oh! Something went wrong.",
-          description: error.response?.data?.message || error.message,
+          description: error.response.data.message || error.message,
         })
       }
     }
@@ -852,10 +726,6 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     initializeAndStartAvatar();
 
     return () => {
-      // Cleanup
-      if (avatar.current) {
-        avatar.current.off('avatar_stop_talking', handleAvatarStopTalking as any);
-      }
       clearTimeout(timeout);
     }
 
@@ -864,20 +734,92 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   // Avatar stop talking event handler
   const handleAvatarStopTalking = (e: any) => {
     console.log("Avatar stopped talking", e);
-    // Voice chat is now handled automatically by HeyGen streaming avatar SDK
-    // No need for manual restart since it's continuous
+    // Only auto-start listening if user is not already listening and not processing AI
+    if (!isListening && !isAiProcessing) {
+      timeout = setTimeout(async () => {
+        try {
+          // Check if microphone is available before starting
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log("Auto-starting speech recognition...");
+          // Web Speech removed in favor of HeyGen SDK voice chat
+          // handleStartListening();
+        } catch (error: any) {
+          console.log("Microphone not available, skipping auto-start listening:", error.message);
+          // Don't show error toast for auto-start failures, just log it
+        }
+      }, 2000);
+    }
   };
 
 
-  // Avatar initialization is now handled in useEffect above using SDK v2 patterns
+  // Function to start the avatar (extracted from grab function)
+  async function startAvatar() {
+    setStartAvatarLoading(true);
+    setIsAvatarFullScreen(true);
+
+    // Check if required environment variables are present
+    const avatarId = import.meta.env.VITE_HEYGEN_AVATARID;
+    const voiceId = import.meta.env.VITE_HEYGEN_VOICEID;
+
+    if (!avatarId || !voiceId) {
+      setStartAvatarLoading(false);
+      toast({
+        variant: "destructive",
+        title: "Missing Configuration",
+        description: 'Missing HeyGen environment variables. Please check VITE_HEYGEN_AVATARID and VITE_HEYGEN_VOICEID in your .env file.',
+      });
+      return;
+    }
+
+    try {
+      const request: StartAvatarRequest = {
+        quality: AvatarQuality.High,
+        avatarName: avatarId,
+        voice: { voiceId: voiceId, rate: 1.5, emotion: VoiceEmotion.EXCITED, model: ElevenLabsModel.eleven_flash_v2_5 },
+        language: 'en',
+        voiceChatTransport: VoiceChatTransport.WEBSOCKET,
+        sttSettings: { provider: STTProvider.DEEPGRAM }
+      };
+      await avatar.current!.createStartAvatar(request);
+      setStartAvatarLoading(false);
+      setIsAvatarRunning(true);
+      // STREAM_READY will bind media when ready
+    } catch (error: any) {
+      console.error('Error starting avatar:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        avatarId: avatarId,
+        voiceId: voiceId
+      });
+      setStartAvatarLoading(false);
+
+      let errorMessage = 'Failed to start avatar. Please check your HeyGen configuration.';
+      if (error.response?.status === 400) {
+        errorMessage = 'Invalid avatar or voice configuration. Please check your HeyGen avatar and voice IDs.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Invalid HeyGen API key. Please check your authentication.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Avatar or voice not found. Please check your HeyGen configuration.';
+      } else if (error.message?.includes('debugStream')) {
+        errorMessage = 'Streaming connection error. Please try refreshing the page.';
+      }
+
+      toast({
+        variant: "destructive",
+        title: "Error starting avatar",
+        description: errorMessage,
+      })
+    }
+  }
 
 
 
   // Function to stop the avatar's speech
   const stopAvatarSpeech = async () => {
     try {
-      if (avatar.current && sessionId) {
-        // Use the interrupt method to stop current speech without ending the session
+      if (avatar.current) {
         await avatar.current.interrupt();
         
         // Clear the speech text
@@ -898,8 +840,6 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     } catch (error) {
       console.error('Error stopping avatar speech:', error);
       // Even if API call fails, clear the speech text
-
-
       setAvatarSpeech('');
       toast({
         title: "Speech Stopped",
@@ -1042,18 +982,18 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
             </div>
           </div>
         )}
-            {            /* Start Chat indicator - non-clickable, disappears when user starts talking */}
-            {(isAvatarFullScreen && sessionState === StreamingAvatarSessionState.CONNECTED && !isAiProcessing && !hasUserStartedChatting) && (
+            {/* Start Chat indicator - non-clickable, disappears when user starts talking */}
+            {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !hasUserStartedChatting) && (
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
                 <div className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 pointer-events-none">
-                  {userIsListening ? 'Listening...' : 'Start Chat'}
+                  Start Chat
             </div>
           </div>
         )}
 
 
-            {            /* Control buttons when user has started chatting */}
-            {(isAvatarFullScreen && sessionState === StreamingAvatarSessionState.CONNECTED && hasUserStartedChatting) && (
+            {/* Control buttons when user has started chatting */}
+            {(isAvatarFullScreen && isAvatarRunning && hasUserStartedChatting) && (
               <>
                 {/* Paper clip and Camera buttons - slightly above hands */}
                 <div className="absolute inset-x-0 top-1/2 translate-y-8 flex justify-center gap-4 z-20">
@@ -1112,8 +1052,8 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 
         </div>
 
-        {            /* Avatar Control Buttons - Only show Stop button when user has started chatting */}
-            {sessionState === StreamingAvatarSessionState.CONNECTED && !isAvatarStarting && hasUserStartedChatting && (
+        {/* Avatar Control Buttons - Only show Stop button when user has started chatting */}
+        {isAvatarRunning && !startAvatarLoading && hasUserStartedChatting && (
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
             <div className="flex gap-2 sm:gap-3">
                 <button
@@ -1131,14 +1071,12 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
             </div>
         )}
 
-        {            /* Loading indicator when avatar is starting automatically */}
-            {(isAvatarStarting || isVoiceChatLoading) && (
+        {/* Loading indicator when avatar is starting automatically */}
+        {startAvatarLoading && (
           <div className="fixed bottom-20 sm:bottom-24 left-1/2 transform -translate-x-1/2 z-30 lg:left-1/2 lg:transform-none lg:bottom-20">
             <div className="flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-semibold shadow-lg backdrop-blur-sm border border-white/20">
               <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-              <span className="text-xs sm:text-sm lg:text-base">
-                {isVoiceChatLoading ? 'Starting Voice Chat...' : 'Starting Avatar...'}
-              </span>
+              <span className="text-xs sm:text-sm lg:text-base">Starting Avatar...</span>
             </div>
           </div>
         )}
@@ -1208,4 +1146,3 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 }
 
 export default App;
-
