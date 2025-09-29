@@ -1,7 +1,7 @@
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
-import StreamingAvatar from '@heygen/streaming-avatar';
+// Note: we dynamically import '@heygen/streaming-avatar' at runtime for robust CJS/ESM compatibility
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
@@ -799,7 +799,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         const token = response.data.data.token;
 
         if (!avatar.current) {
-          const StreamingAvatarCtor: any = (StreamingAvatar as any)?.default ?? (StreamingAvatar as any);
+          const { default: StreamingAvatarCtor }: any = await import('@heygen/streaming-avatar');
           avatar.current = new StreamingAvatarCtor({ token });
         }
         
