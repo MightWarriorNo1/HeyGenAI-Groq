@@ -22,7 +22,7 @@ function App() {
   //Toast
   const { toast } = useToast()
 
-  const [isListening] = useState<boolean>(false);
+  // Removed isListening state as it's no longer needed with SDK voice chat
   const [avatarSpeech, setAvatarSpeech] = useState<string>('');
   const [stream, setStream] = useState<MediaStream>();
   const [isVisionMode, setIsVisionMode] = useState<boolean>(false);
@@ -88,6 +88,7 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [isAvatarRunning, setIsAvatarRunning] = useState<boolean>(false);
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
+  const [isVoiceChatActive, setIsVoiceChatActive] = useState<boolean>(false);
   let timeout: any;
 
 
@@ -692,26 +693,80 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 
         // Wire streaming events
         avatar.current.on(StreamingEvents.STREAM_READY, (event: any) => {
+          console.log('Stream ready event:', event);
           const media: MediaStream = event.detail;
           setStream(media);
+          // Start voice chat after stream is ready
+          console.log('Starting voice chat after stream ready...');
+          avatar.current?.startVoiceChat().then(() => {
+            console.log('Voice chat started successfully');
+            setIsVoiceChatActive(true);
+          }).catch((error) => {
+            console.error('Error starting voice chat:', error);
+          });
         });
         avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
           setStream(undefined);
           setIsAvatarRunning(false);
         });
         avatar.current.on(StreamingEvents.USER_TALKING_MESSAGE, (event: any) => {
+          console.log('User talking message event:', event);
           try {
-            const msg = event.detail?.message || event.detail?.data?.message;
-            if (msg) {
-              handleSpeechResult(msg);
+            // Try different possible event structures
+            let msg = null;
+            if (event.detail?.message) {
+              msg = event.detail.message;
+            } else if (event.detail?.data?.message) {
+              msg = event.detail.data.message;
+            } else if (event.detail?.data) {
+              msg = event.detail.data;
+            } else if (event.detail) {
+              msg = event.detail;
+            } else if (event.message) {
+              msg = event.message;
+            } else if (event.data?.message) {
+              msg = event.data.message;
             }
-          } catch {}
+            
+            if (msg) {
+              console.log('Received user message:', msg);
+              handleSpeechResult(msg);
+            } else {
+              console.log('No message found in event:', event);
+            }
+          } catch (e) {
+            console.error('Error processing user message:', e);
+          }
+        });
+        avatar.current.on(StreamingEvents.USER_START, (event: any) => {
+          console.log('User started talking:', event);
+        });
+        avatar.current.on(StreamingEvents.USER_STOP, (event: any) => {
+          console.log('User stopped talking:', event);
         });
         avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, handleAvatarStopTalking);
 
-        // Automatically start the avatar and voice chat
+        // Add a general event listener to see all events
+        avatar.current.on('*', (event: any) => {
+          console.log('All events:', event);
+        });
+
+        // Start the avatar (voice chat will start after STREAM_READY)
         await startAvatar();
-        await avatar.current.startVoiceChat();
+        
+        // Fallback: try to start voice chat after a delay if it hasn't started
+        setTimeout(async () => {
+          try {
+            if (avatar.current && isAvatarRunning) {
+              console.log('Fallback: attempting to start voice chat...');
+              await avatar.current.startVoiceChat();
+              console.log('Fallback voice chat started successfully');
+              setIsVoiceChatActive(true);
+            }
+          } catch (error) {
+            console.error('Fallback voice chat start failed:', error);
+          }
+        }, 5000);
 
       } catch (error: any) {
         console.error("Error initializing avatar:", error);
@@ -734,20 +789,20 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
   // Avatar stop talking event handler
   const handleAvatarStopTalking = (e: any) => {
     console.log("Avatar stopped talking", e);
-    // Only auto-start listening if user is not already listening and not processing AI
-    if (!isListening && !isAiProcessing) {
-      timeout = setTimeout(async () => {
-        try {
-          // Check if microphone is available before starting
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-          console.log("Auto-starting speech recognition...");
-          // Web Speech removed in favor of HeyGen SDK voice chat
-          // handleStartListening();
-        } catch (error: any) {
-          console.log("Microphone not available, skipping auto-start listening:", error.message);
-          // Don't show error toast for auto-start failures, just log it
-        }
-      }, 2000);
+    // Voice chat is already active, no need to restart
+  };
+
+  // Manual voice chat start function for debugging
+  const startVoiceChatManually = async () => {
+    try {
+      if (avatar.current) {
+        console.log('Manually starting voice chat...');
+        await avatar.current.startVoiceChat();
+        console.log('Voice chat started successfully');
+        setIsVoiceChatActive(true);
+      }
+    } catch (error) {
+      console.error('Error starting voice chat manually:', error);
     }
   };
 
@@ -780,9 +835,11 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         voiceChatTransport: VoiceChatTransport.WEBSOCKET,
         sttSettings: { provider: STTProvider.DEEPGRAM }
       };
+      console.log('Creating avatar with request:', request);
       await avatar.current!.createStartAvatar(request);
       setStartAvatarLoading(false);
       setIsAvatarRunning(true);
+      console.log('Avatar created successfully, waiting for STREAM_READY...');
       // STREAM_READY will bind media when ready
     } catch (error: any) {
       console.error('Error starting avatar:', error);
@@ -986,7 +1043,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
             {(isAvatarFullScreen && isAvatarRunning && !isAiProcessing && !hasUserStartedChatting) && (
               <div className="absolute inset-x-0 bottom-28 sm:bottom-32 flex justify-center z-20">
                 <div className="px-6 py-3 sm:px-8 sm:py-4 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold shadow-2xl border border-white/20 backdrop-blur-md transition-all duration-200 pointer-events-none">
-                  Start Chat
+                  {isVoiceChatActive ? 'Voice Chat Active - Start Speaking' : 'Initializing Voice Chat...'}
             </div>
           </div>
         )}
@@ -1066,6 +1123,12 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
                 </svg>
                 <span className="hidden sm:inline">Stop Talking</span>
                 <span className="sm:hidden">Stop</span>
+                </button>
+                <button
+                onClick={startVoiceChatManually}
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm lg:text-base shadow-lg hover:shadow-xl backdrop-blur-sm border border-white/20"
+              >
+                <span>Start Voice Chat</span>
                 </button>
               </div>
             </div>
