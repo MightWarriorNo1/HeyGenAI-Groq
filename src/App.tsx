@@ -1,14 +1,7 @@
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
-import StreamingAvatar, {
-  AvatarQuality,
-  StreamingEvents,
-  VoiceChatTransport,
-  VoiceEmotion,
-  StartAvatarRequest,
-  STTProvider,
-} from '@heygen/streaming-avatar';
+import StreamingAvatar from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
@@ -48,7 +41,7 @@ function App() {
   const lastSampleImageDataRef = useRef<ImageData | null>(null);
   const stabilityStartRef = useRef<number | null>(null);
   const nextAllowedAnalysisAtRef = useRef<number>(0);
-  const avatar = useRef<StreamingAvatar | null>(null);
+const avatar = useRef<any>(null);
   const [sessionState, setSessionState] = useState<StreamingAvatarSessionState>(StreamingAvatarSessionState.INACTIVE);
   // Removed speechService ref - using HeyGen built-in voice chat instead
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -637,27 +630,27 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
 
 
   // Default avatar configuration using SDK v2
-  const DEFAULT_CONFIG: StartAvatarRequest = {
-    quality: AvatarQuality.High,
+  const DEFAULT_CONFIG = {
+    quality: 'high',
     avatarName: import.meta.env.VITE_HEYGEN_AVATARID || '',
     voice: {
       voiceId: import.meta.env.VITE_HEYGEN_VOICEID,
       rate: 1.0,
-      emotion: VoiceEmotion.FRIENDLY,
+      emotion: 'friendly',
     },
-    language: "en",
-    voiceChatTransport: VoiceChatTransport.WEBSOCKET,
+    language: 'en',
+    voiceChatTransport: 'websocket',
     sttSettings: {
-      provider: STTProvider.DEEPGRAM,
+      provider: 'deepgram',
     },
-  };
+  } as const;
 
   // useEffect getting triggered when the avatarSpeech state is updated, basically make the avatar to talk
   useEffect(() => {
     async function speak() {
       if (avatarSpeech && sessionId) {
         try {
-          await avatar.current?.speak({ text: avatarSpeech });
+          await avatar.current?.speak({ text: avatarSpeech } as any);
         } catch (err: any) {
           console.error(err);
         }
@@ -810,31 +803,31 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
         }
         
         // Set up event handlers using SDK v2
-        avatar.current.on(StreamingEvents.AVATAR_START_TALKING, (e) => {
+        avatar.current.on('avatar_start_talking', (e: any) => {
           console.log("Avatar started talking", e);
         });
-        avatar.current.on(StreamingEvents.AVATAR_STOP_TALKING, handleAvatarStopTalking);
-        avatar.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+        avatar.current.on('avatar_stop_talking', handleAvatarStopTalking);
+        avatar.current.on('stream_disconnected', () => {
           console.log("Stream disconnected");
           setSessionState(StreamingAvatarSessionState.INACTIVE);
         });
-        avatar.current.on(StreamingEvents.STREAM_READY, (event) => {
+        avatar.current.on('stream_ready', (event: any) => {
           console.log(">>>>> Stream ready:", event.detail);
           setStream(event.detail);
-          setSessionId(event.sessionId); // Set session ID from stream ready event
+          setSessionId((event as any).sessionId); // Set session ID from stream ready event
           setSessionState(StreamingAvatarSessionState.CONNECTED);
         });
-        avatar.current.on(StreamingEvents.USER_START, handleUserStartTalking);
-        avatar.current.on(StreamingEvents.USER_STOP, handleUserStopTalking);
-        avatar.current.on(StreamingEvents.USER_END_MESSAGE, async (event) => {
+        avatar.current.on('user_start', handleUserStartTalking as any);
+        avatar.current.on('user_stop', handleUserStopTalking as any);
+        avatar.current.on('user_end_message', async (event: any) => {
           console.log(">>>>> User end message:", event);
           // Handle user message completion
         });
-        avatar.current.on(StreamingEvents.USER_TALKING_MESSAGE, handleUserTalkingMessage);
-        avatar.current.on(StreamingEvents.AVATAR_TALKING_MESSAGE, (event) => {
+        avatar.current.on('user_talking_message', handleUserTalkingMessage as any);
+        avatar.current.on('avatar_talking_message', (event: any) => {
           console.log(">>>>> Avatar talking message:", event);
         });
-        avatar.current.on(StreamingEvents.AVATAR_END_MESSAGE, (event) => {
+        avatar.current.on('avatar_end_message', (event: any) => {
           console.log(">>>>> Avatar end message:", event);
         });
 
@@ -860,7 +853,7 @@ Remember: You're not just solving problems, you're putting on a comedy show whil
     return () => {
       // Cleanup
       if (avatar.current) {
-        avatar.current.off(StreamingEvents.AVATAR_STOP_TALKING, handleAvatarStopTalking);
+        avatar.current.off('avatar_stop_talking', handleAvatarStopTalking as any);
       }
       clearTimeout(timeout);
     }
