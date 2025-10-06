@@ -1,26 +1,20 @@
+/*eslint-disable*/
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
-import ChatMessage from './components/reusable/ChatMessage';
-import MicButton from './components/reusable/MicButton';
-import { LandingComponent } from './components/reusable/LandingComponent';
-import ScrollableFeed from 'react-scrollable-feed';
 import { Badges } from './components/reusable/Badges';
+import BrandHeader from './components/reusable/BrandHeader';
+import MicButton from './components/reusable/MicButton';
 import { Toaster } from "@/components/ui/toaster"
 
-type ChatMessageType = {
-  role: string;
-  message: string;
-};
 
 function App() {
   //Toast
   const { toast } = useToast()
 
-  const [isBegin, setIsBegin] = useState<boolean>(false);
   const [startLoading, setStartLoading] = useState<boolean>(false);
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
@@ -31,32 +25,10 @@ function App() {
   const [data, setData] = useState<NewSessionData>();
   const mediaStream = useRef<HTMLVideoElement>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessageType[]>([
-    // {
-    //   role: 'user',
-    //   message: 'hi, how are you!'
-    // },
-    // {
-    //   role: 'assistant',
-    //   message: 'I am fine, Thank you for asking. How about you!'
-    // },
-    // {
-    //   role: 'user',
-    //   message: 'Explain me about python!'
-    // },
-    // {
-    //   role: 'assistant',
-    //   message: "Python is an interpreted, object-oriented, high-level programming language with dynamic semantics. Its high-level built in data structures, combined with dynamic typing and dynamic binding, make it very attractive for Rapid Application Development, as well as for use as a scripting or glue language to connect existing components together. Python's simple, easy to learn syntax emphasizes readability and therefore reduces the cost of program maintenance. Python supports modules and packages, which encourages program modularity and code reuse. The Python interpreter and the extensive standard library are available in source or binary form without charge for all major platforms, and can be freely distributed."
-    // },
-    // {
-    //   role: 'user',
-    //   message: 'hi, how are you!'
-    // },
-
-  ]);
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
+  const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
   let timeout: any;
 
 
@@ -67,9 +39,8 @@ function App() {
   });
 
 
-  //Function when user starts speaking
-  const handleStartSpeaking = () => {
-
+  // Function to start continuous listening for voice input
+  const startContinuousListening = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then((stream) => {
         const audioContext = new (window.AudioContext)(); 
@@ -81,54 +52,61 @@ function App() {
       
         mediaStreamSource.connect(analyser);
 
+        let isRecording = false;
         let silenceStart: number | null = null;
-        const silenceTimeout = 2000; // 2 second of silence
-        let silenceDetected = false;
-        mediaRecorder.current = new MediaRecorder(stream);
+        const silenceTimeout = 2000; // 2 seconds of silence
+        const voiceThreshold = 30; // Voice detection threshold
 
-        mediaRecorder.current.ondataavailable = (event) => {
-          audioChunks.current.push(event.data);
-        };
-
-        mediaRecorder.current.onstop = () => {
-          const audioBlob = new Blob(audioChunks.current, {
-            type: 'audio/wav',
-          });
-          audioChunks.current = [];
-          transcribeAudio(audioBlob);
-        };
-
-        mediaRecorder.current.start();
-        setIsSpeaking(true);
-
-
-        const checkSilence = () => {
+        const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
           const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
 
+          if (avgVolume > voiceThreshold && !isRecording) {
+            // Voice detected, start recording
+            console.log('Voice detected, starting recording...');
+            isRecording = true;
+            silenceStart = null;
+            mediaRecorder.current = new MediaRecorder(stream);
+            audioChunks.current = [];
 
-          // Silence threshold
-          const silenceThreshold = 20;
+            mediaRecorder.current.ondataavailable = (event) => {
+              audioChunks.current.push(event.data);
+            };
 
-          if (avgVolume < silenceThreshold) {
-            console.log('here');
+            mediaRecorder.current.onstop = () => {
+              const audioBlob = new Blob(audioChunks.current, {
+                type: 'audio/wav',
+              });
+              audioChunks.current = [];
+              transcribeAudio(audioBlob);
+              isRecording = false;
+            };
+
+            mediaRecorder.current.start();
+            setIsSpeaking(true);
+          } else if (avgVolume < voiceThreshold && isRecording) {
+            // Voice stopped, check for silence
             if (!silenceStart) silenceStart = Date.now();
 
-            if (Date.now() - silenceStart >= silenceTimeout && !silenceDetected) {
-              console.log('silence detected!');
-              silenceDetected = true;
-              handleStopSpeaking(); 
-              audioContext.close(); // Close the audio context
-              stream.getTracks().forEach(track => track.stop()); // Stop the stream
+            if (Date.now() - silenceStart >= silenceTimeout) {
+              console.log('Silence detected, stopping recording...');
+              if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
+                mediaRecorder.current.stop();
+              }
+              setIsSpeaking(false);
+              isRecording = false;
+              silenceStart = null;
             }
-          } else {
+          } else if (avgVolume > voiceThreshold && isRecording) {
+            // Still speaking, reset silence timer
             silenceStart = null;
           }
 
-          if (!silenceDetected) requestAnimationFrame(checkSilence);
+          // Continue monitoring
+          requestAnimationFrame(checkForVoice);
         };
 
-        checkSilence();
+        checkForVoice();
       })
       .catch((error) => {
         console.error('Error accessing microphone:', error);
@@ -138,6 +116,11 @@ function App() {
           description: error.message,
         })
       });
+  };
+
+  //Function when user starts speaking (kept for mic button compatibility)
+  const handleStartSpeaking = () => {
+    startContinuousListening();
   };
 
   const handleStopSpeaking = async () => {
@@ -162,7 +145,6 @@ function App() {
       });
 
       const transcription = response.text;
-      setChatMessages(prev => [...prev, { role: 'user', message: transcription }]);
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
@@ -170,7 +152,6 @@ function App() {
         ]
       });
       setInput(aiResponse.choices[0].message.content || '');
-      setChatMessages(prev => [...prev, { role: 'assistant', message: aiResponse.choices[0].message.content || '' }]);
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
       toast({
@@ -209,9 +190,14 @@ function App() {
           );
         }
         console.log(avatar.current)
-        // Clear any existing event handlers to prevent duplication
-        avatar.current.removeEventHandler("avatar_stop_talking", handleAvatarStopTalking);
-        avatar.current.addEventHandler("avatar_stop_talking", handleAvatarStopTalking);
+
+        // Automatically start the avatar session
+        await grab();
+
+        // Start automatic voice detection after avatar is ready
+        setTimeout(() => {
+          startContinuousListening();
+        }, 3000); // Wait 3 seconds for avatar to be ready
 
       } catch (error: any) {
         console.error("Error fetching access token:", error);
@@ -226,22 +212,12 @@ function App() {
     fetchAccessToken();
 
     return () => {
-      // Cleanup event handler and timeout
-      if (avatar.current) {
-        avatar.current.removeEventHandler("avatar_stop_talking", handleAvatarStopTalking);
-      }
+      // Cleanup timeout
       clearTimeout(timeout);
     }
 
   }, []);
 
-// Avatar stop talking event handler
-const handleAvatarStopTalking = (e: any) => {
-  console.log("Avatar stopped talking", e);
-  timeout = setTimeout(() => {
-    handleStartSpeaking();
-  }, 2000);
-};
 
 
 // Function to initiate the avatar
@@ -279,7 +255,7 @@ async function grab() {
     setStream(avatar.current!.mediaStream);
     setStartLoading(false);
     setStartAvatarLoading(false);
-    setIsBegin(true);
+    setIsSessionStarted(true);
 
   } catch (error: any) {
     console.log(error.message);
@@ -293,13 +269,11 @@ async function grab() {
   }
 };
 
-
 //Function to stop the avatar
 async function stop() {
   setStopAvatarLoading(true);
   try {
     await avatar.current?.stopAvatar({ stopSessionRequest: { sessionId: data?.sessionId } });
-    // handleStopSpeaking();
     setStopAvatarLoading(false);
     avatar.current = null;
   } catch (error: any) {
@@ -312,18 +286,15 @@ async function stop() {
   }
 }
 
-
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
-    setChatMessages(prev => [...prev, { role: 'user', message: selectedPrompt }]);
     openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         { role: 'user', content: selectedPrompt }
       ]
     }).then(aiResponse => {
-      setChatMessages(prev => [...prev, { role: 'assistant', message: aiResponse.choices[0].message.content || '' }]);
       setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
       console.log(error);
@@ -352,52 +323,29 @@ useEffect(() => {
 return (
   <>
     <Toaster />
-    {
-      !isBegin ? (
-        <div>
-          <LandingComponent
-            grab={grab}
-            startLoading={startLoading}
-          />
+    <div className="h-screen w-screen relative overflow-hidden">
+      {/* Brand Header - only show after session starts */}
+      {isSessionStarted && <BrandHeader />}
 
-        </div>
+      {/* Fullscreen Avatar Video */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Video ref={mediaStream} />
+      </div>
 
-      ) : (
-        <div className="flex flex-col items-center justify-center p-4 w-full mx-auto">
-          {/* {audioSrc && (
-              <audio controls>
-                <source src={audioSrc} type="audio/wav" />
-                Your browser does not support the audio element.
-              </audio>
-            )} */}
-          <div className='flex gap-3 justify-center items-center w-full '>
-            {
-              chatMessages.length > 0 ? (
-                <ScrollableFeed className="w-full ">
-                  <div className=" flex-1 p-4 overflow-y-auto  w-full bg-gray-50 rounded-3xl h-[400px] box-shadow">
-                    {
-
-                      chatMessages.map((chatMsg, index) => (
-                        <ChatMessage
-                          key={index}
-                          role={chatMsg.role}
-                          message={chatMsg.message}
-                        />
-                      ))
-                    }
-                  </div>
-                </ScrollableFeed>
-              ) : (
-                <div className="p-4 overflow-y-auto flex justify-center items-center w-full bg-gray-50 rounded-3xl h-[400px] box-shadow">
-                  No chats yet
-                </div>
-              )
-            }
-            <Video ref={mediaStream} />
+      {/* Loading overlay */}
+      {(startLoading || startAvatarLoading) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20">
+          <div className="text-white text-xl text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+            Starting avatar session...
           </div>
+        </div>
+      )}
 
-          <div className='bg-gray-50 flex flex-col justify-center fixed bottom-0 p-2 w-full rounded-lg z-10'>
-
+      {/* Controls overlay at bottom - only show after session starts */}
+      {isSessionStarted && (
+        <div className='absolute bottom-0 left-0 right-0 flex flex-col justify-center p-2 z-10'>
+          <div className="w-full max-w-4xl mx-auto">
             <Badges
               setSelectedPrompt={setSelectedPrompt}
             />
@@ -410,14 +358,10 @@ return (
               avatarStopLoading={stopAvatarLoading}
             />
           </div>
-
         </div>
-      )
-    }
-
-
+      )}
+    </div>
   </>
-
 );
 }
 

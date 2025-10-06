@@ -2,9 +2,12 @@
 import { forwardRef } from 'react';
 
 const Video = forwardRef<HTMLVideoElement, {}>((_, ref) => (
-  <div className="w-full">
-    <video playsInline autoPlay width={500} ref={ref} className="rounded-lg w-full h-full"  />
-  </div>
+  <video 
+    playsInline 
+    autoPlay 
+    ref={ref} 
+    className="w-full h-full object-cover" 
+  />
 ));
 
 export { Video };
