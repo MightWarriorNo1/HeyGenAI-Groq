@@ -1,4 +1,3 @@
-/*eslint-disable */
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
@@ -7,6 +6,7 @@ import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import ChatMessage from './components/reusable/ChatMessage';
 import MicButton from './components/reusable/MicButton';
+import { LandingComponent } from './components/reusable/LandingComponent';
 import ScrollableFeed from 'react-scrollable-feed';
 import { Badges } from './components/reusable/Badges';
 import { Toaster } from "@/components/ui/toaster"
@@ -20,7 +20,8 @@ function App() {
   //Toast
   const { toast } = useToast()
 
-  const [startLoading, setStartLoading] = useState<boolean>(true);
+  const [isBegin, setIsBegin] = useState<boolean>(false);
+  const [startLoading, setStartLoading] = useState<boolean>(false);
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [input, setInput] = useState<string>('');
@@ -196,10 +197,11 @@ function App() {
 
   // useEffect called when the component mounts, to fetch the accessToken and creates the new instance of StreamingAvatarApi
   useEffect(() => {
-    async function fetchAccessTokenAndStartAvatar() {
+    async function fetchAccessToken() {
       try {
         const response = await getAccessToken();
         const token = response.data.data.token;
+
 
         if (!avatar.current) {
           avatar.current = new StreamingAvatarApi(
@@ -211,12 +213,8 @@ function App() {
         avatar.current.removeEventHandler("avatar_stop_talking", handleAvatarStopTalking);
         avatar.current.addEventHandler("avatar_stop_talking", handleAvatarStopTalking);
 
-        // Automatically start the avatar
-        await startAvatar();
-
       } catch (error: any) {
         console.error("Error fetching access token:", error);
-        setStartLoading(false);
         toast({
           variant: "destructive",
           title: "Uh oh! Something went wrong.",
@@ -225,7 +223,7 @@ function App() {
       }
     }
 
-    fetchAccessTokenAndStartAvatar();
+    fetchAccessToken();
 
     return () => {
       // Cleanup event handler and timeout
@@ -246,10 +244,27 @@ const handleAvatarStopTalking = (e: any) => {
 };
 
 
-//Function to start the avatar (used for automatic initialization)
-async function startAvatar() {
+// Function to initiate the avatar
+async function grab() {
+  setStartLoading(true);
   setStartAvatarLoading(true);
   try {
+    const response = await getAccessToken();
+    const token = response.data.data.token;
+
+
+    if (!avatar.current) {
+      avatar.current = new StreamingAvatarApi(
+        new Configuration({ accessToken: token })
+      );
+    }
+    // avatar.current.addEventHandler("avatar_stop_talking", (e: any) => {
+    //   console.log("Avatar stopped talking", e);
+    //   setTimeout(() => {
+    //     handleStartSpeaking();
+    //   }, 2000);
+    // });
+
     const res = await avatar.current!.createStartAvatar(
       {
         newSessionRequest: {
@@ -264,34 +279,7 @@ async function startAvatar() {
     setStream(avatar.current!.mediaStream);
     setStartLoading(false);
     setStartAvatarLoading(false);
-
-  } catch (error: any) {
-    console.log(error.message);
-    setStartAvatarLoading(false);
-    setStartLoading(false);
-    toast({
-      variant: "destructive",
-      title: "Uh oh! Something went wrong.",
-      description: error.response.data.message || error.message,
-    })
-  }
-};
-
-// Function to initiate the avatar (kept for manual restart functionality)
-async function grab() {
-  setStartLoading(true);
-  setStartAvatarLoading(true);
-  try {
-    const response = await getAccessToken();
-    const token = response.data.data.token;
-
-    if (!avatar.current) {
-      avatar.current = new StreamingAvatarApi(
-        new Configuration({ accessToken: token })
-      );
-    }
-
-    await startAvatar();
+    setIsBegin(true);
 
   } catch (error: any) {
     console.log(error.message);
@@ -365,13 +353,15 @@ return (
   <>
     <Toaster />
     {
-      startLoading ? (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Initializing avatar...</p>
-          </div>
+      !isBegin ? (
+        <div>
+          <LandingComponent
+            grab={grab}
+            startLoading={startLoading}
+          />
+
         </div>
+
       ) : (
         <div className="flex flex-col items-center justify-center p-4 w-full mx-auto">
           {/* {audioSrc && (
