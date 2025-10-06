@@ -17,10 +17,7 @@ export const LandingComponent = ({ grab, startLoading }: LandingPageProps) => {
                     </CardTitle>
                     <CardDescription className='text-justify'>
                         This project is an interactive experience between the user and a real-time avatar,
-                        using Hygen's highly capable avatar and OpenAI's LLM. The project converts the user's
-                        speech to text via OpenAI's GPT-3.5-turbo, fetches an appropriate response using the
-                        OpenAI APIs, and delivers the conversation to Hygen's avatar for a face-to-face,
-                        real-time interaction. Experience it by one click down below
+                        using Hygen's highly capable avatar and OpenAI's LLM. Experience it by one click down below
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex justify-center mt-4">
