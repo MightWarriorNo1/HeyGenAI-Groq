@@ -199,6 +199,16 @@ function App() {
           startContinuousListening();
         }, 3000); // Wait 3 seconds for avatar to be ready
 
+        // Add user interaction handler for Android autoplay
+        const handleUserInteraction = () => {
+          if (mediaStream.current && mediaStream.current.paused) {
+            mediaStream.current.play().catch(console.error);
+          }
+        };
+
+        document.addEventListener('touchstart', handleUserInteraction, { once: true });
+        document.addEventListener('click', handleUserInteraction, { once: true });
+
       } catch (error: any) {
         console.error("Error fetching access token:", error);
         toast({
@@ -311,11 +321,46 @@ useEffect(() => {
 // When the stream gets the data, The avatar video will gets played
 useEffect(() => {
   if (stream && mediaStream.current) {
-    console.log(stream);
-    console.log(mediaStream.current);
+    console.log('Setting up video stream:', stream);
+    console.log('Video element:', mediaStream.current);
+    
     mediaStream.current.srcObject = stream;
-    mediaStream.current.onloadedmetadata = () => {
-      mediaStream.current!.play();
+    
+    // Handle video loading and playing for mobile compatibility
+    const handleLoadedMetadata = () => {
+      console.log('Video metadata loaded');
+      if (mediaStream.current) {
+        mediaStream.current.play().catch(error => {
+          console.error('Autoplay failed:', error);
+          // Try to play with user interaction
+          document.addEventListener('touchstart', () => {
+            if (mediaStream.current) {
+              mediaStream.current.play().catch(console.error);
+            }
+          }, { once: true });
+        });
+      }
+    };
+
+    const handleCanPlay = () => {
+      console.log('Video can play');
+    };
+
+    const handleError = (error: any) => {
+      console.error('Video error:', error);
+    };
+
+    mediaStream.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+    mediaStream.current.addEventListener('canplay', handleCanPlay);
+    mediaStream.current.addEventListener('error', handleError);
+
+    // Cleanup function
+    return () => {
+      if (mediaStream.current) {
+        mediaStream.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        mediaStream.current.removeEventListener('canplay', handleCanPlay);
+        mediaStream.current.removeEventListener('error', handleError);
+      }
     };
   }
 }, [stream]);
@@ -328,8 +373,17 @@ return (
       <BrandHeader />
 
       {/* Fullscreen Avatar Video */}
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0 flex items-center justify-center bg-black">
         <Video ref={mediaStream} />
+        {/* Fallback for Android browsers */}
+        {!stream && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <div className="text-white text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+              <div>Loading video stream...</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Loading overlay */}
