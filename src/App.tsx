@@ -266,6 +266,9 @@ async function grab() {
     setStartLoading(false);
     setStartAvatarLoading(false);
     setIsSessionStarted(true);
+    
+    // Automatically start voice chat when avatar session starts
+    startContinuousListening();
 
   } catch (error: any) {
     console.log(error.message);
@@ -375,15 +378,6 @@ return (
       {/* Fullscreen Avatar Video */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
         <Video ref={mediaStream} />
-        {/* Fallback for Android browsers */}
-        {!stream && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black">
-            <div className="text-white text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-              <div>Loading video stream...</div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Loading overlay */}
@@ -391,7 +385,7 @@ return (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20">
           <div className="text-white text-xl text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-            Starting avatar session...
+            Starting Avatar...
           </div>
         </div>
       )}

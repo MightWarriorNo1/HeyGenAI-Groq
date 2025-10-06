@@ -17,3 +17,4 @@ const BrandHeader: React.FC = () => {
 };
 
 export default BrandHeader;
+

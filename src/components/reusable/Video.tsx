@@ -5,7 +5,6 @@ const Video = forwardRef<HTMLVideoElement, object>((_, ref) => (
   <video 
     playsInline 
     autoPlay 
-    muted
     loop
     ref={ref} 
     className="w-full h-full object-cover" 
