@@ -1,9 +1,0 @@
-{
-    "rewrites": [
-      {
-        "source": "/api/heygen/:path*",
-        "destination": "https://api.heygen.com/:path*"
-      }
-    ]
-  }
-  

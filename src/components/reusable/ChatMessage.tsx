@@ -1,18 +1,14 @@
 // src/components/ChatMessage.tsx
 import { useEffect, useRef } from 'react';
-import MediaMessage from './MediaMessage';
-import IPadAvatar from './IPadAvatar';
+import { Avatar } from '@/components/ui/avatar';
+import { AvatarFallback, AvatarImage } from '@radix-ui/react-avatar';
 
 interface ChatMessageProps {
     role: string;
     message: string;
-    media?: {
-        file: File;
-        type: 'photo' | 'video';
-    };
 };
 
-const ChatMessage=({ role, message, media }: ChatMessageProps) => {
+const ChatMessage=({ role, message }: ChatMessageProps) => {
 
     const messageRef = useRef<HTMLDivElement>(null);
 
@@ -23,52 +19,35 @@ const ChatMessage=({ role, message, media }: ChatMessageProps) => {
     }, [message])
     
     return (
-        <div ref={messageRef}>
-            {/* Media Message */}
-            {media && (
-                <MediaMessage 
-                    file={media.file} 
-                    type={media.type} 
-                    role={role as 'user' | 'assistant'} 
-                />
-            )}
+    
+
+        <div
+            className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-2`}
+            ref={messageRef}
+        >
             
-            {/* Text Message */}
-            {message && (
-                <div
-                    className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'} mb-2`}
-                >
-                    {
-                        role ==='assistant' && (
-                        <IPadAvatar 
-                            src="https://github.com/shadcn.png" 
-                            alt="Assistant Avatar"
-                            fallback="AI"
-                            className="mr-1 sm:mr-2 w-6 h-6 sm:w-8 sm:h-8"
-                            onLoad={() => console.log('Assistant avatar loaded')}
-                            onError={(e) => console.log('Assistant avatar failed to load', e)}
-                        />
-                        )
-                    }
-                    <div
-                        className={`p-3 sm:p-4 rounded-2xl sm:rounded-3xl text-white ${role === 'user' ? 'bg-gradient-to-r from-blue-500 to-blue-600' : 'bg-gradient-to-r from-gray-500 to-gray-600'} max-w-[85%] sm:max-w-[70%] lg:max-w-[50%] text-sm sm:text-base break-words shadow-sm`}
-                    >
-                        {message}
-                    </div>
-                    {
-                        role ==='user' && (
-                        <IPadAvatar 
-                            src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" 
-                            alt="User Avatar"
-                            fallback="U"
-                            className="ml-1 sm:ml-2 w-6 h-6 sm:w-8 sm:h-8"
-                            onLoad={() => console.log('User avatar loaded')}
-                            onError={(e) => console.log('User avatar failed to load', e)}
-                        />
-                        )
-                    }
-                </div>
-            )}
+            {
+                role ==='assistant' && (
+                <Avatar className='mr-2'>
+                    <AvatarImage src="https://github.com/shadcn.png" />
+                    <AvatarFallback>CN</AvatarFallback>
+                </Avatar>
+                )
+            }
+            <div
+                className={`p-3 rounded-3xl text-white ${role === 'user' ? 'bg-blue-400' : 'bg-gray-400'} max-w-[50%] `}
+            >
+    
+                {message}
+            </div>
+            {
+                role ==='user' && (
+                <Avatar className='ml-2'>
+                    <AvatarImage src="https://as2.ftcdn.net/v2/jpg/05/89/93/27/1000_F_589932782_vQAEAZhHnq1QCGu5ikwrYaQD0Mmurm0N.jpg" width={50} height={50} />
+                    <AvatarFallback>CN</AvatarFallback>
+                </Avatar>
+                )
+            }
         </div>
     );
 }
