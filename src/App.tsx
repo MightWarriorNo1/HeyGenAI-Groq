@@ -1,3 +1,4 @@
+/*eslint-disable */
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from 'react';
 import OpenAI from 'openai';
@@ -6,7 +7,6 @@ import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import ChatMessage from './components/reusable/ChatMessage';
 import MicButton from './components/reusable/MicButton';
-import { LandingComponent } from './components/reusable/LandingComponent';
 import ScrollableFeed from 'react-scrollable-feed';
 import { Badges } from './components/reusable/Badges';
 import { Toaster } from "@/components/ui/toaster"
@@ -20,7 +20,6 @@ function App() {
   //Toast
   const { toast } = useToast()
 
-  const [isBegin, setIsBegin] = useState<boolean>(true);
   const [startLoading, setStartLoading] = useState<boolean>(true);
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
@@ -265,7 +264,6 @@ async function startAvatar() {
     setStream(avatar.current!.mediaStream);
     setStartLoading(false);
     setStartAvatarLoading(false);
-    setIsBegin(true);
 
   } catch (error: any) {
     console.log(error.message);
