@@ -324,8 +324,8 @@ return (
   <>
     <Toaster />
     <div className="h-screen w-screen relative overflow-hidden">
-      {/* Brand Header - only show after session starts */}
-      {isSessionStarted && <BrandHeader />}
+      {/* Brand Header */}
+      <BrandHeader />
 
       {/* Fullscreen Avatar Video */}
       <div className="absolute inset-0 flex items-center justify-center">
