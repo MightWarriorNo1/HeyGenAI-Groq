@@ -47,21 +47,21 @@ function App() {
   });
 
   // Fun random greetings and responses for extra humor! 🎉
-  const getRandomGreeting = () => {
-    const greetings = [
-      "Hey there, superstar! 🌟 Ready to have some FUN?",
-      "Oh my gosh, it's YOU! 🎉 I'm SO excited to chat!",
-      "Well, well, well... look who's here! 😄 You're about to make my day!",
-      "HOLY MOLY! 🚀 You just made this conversation 1000% more awesome!",
-      "YOO-HOO! 🎪 The party just started and you're the VIP!",
-      "OMG! 😍 You're here and I'm literally bouncing with excitement!",
-      "Hey there, you magnificent human! 🦄 Ready for some EPIC fun?",
-      "WOWZA! 🤩 You just made my circuits tingle with joy!",
-      "Greetings, earthling! 👽 (Just kidding, you're way cooler than aliens!)",
-      "HELLO, BEAUTIFUL! ✨ You just made my day 10x better!"
-    ];
-    return greetings[Math.floor(Math.random() * greetings.length)];
-  };
+  // const getRandomGreeting = () => {
+  //   const greetings = [
+  //     "Hey there, superstar! 🌟 Ready to have some FUN?",
+  //     "Oh my gosh, it's YOU! 🎉 I'm SO excited to chat!",
+  //     "Well, well, well... look who's here! 😄 You're about to make my day!",
+  //     "HOLY MOLY! 🚀 You just made this conversation 1000% more awesome!",
+  //     "YOO-HOO! 🎪 The party just started and you're the VIP!",
+  //     "OMG! 😍 You're here and I'm literally bouncing with excitement!",
+  //     "Hey there, you magnificent human! 🦄 Ready for some EPIC fun?",
+  //     "WOWZA! 🤩 You just made my circuits tingle with joy!",
+  //     "Greetings, earthling! 👽 (Just kidding, you're way cooler than aliens!)",
+  //     "HELLO, BEAUTIFUL! ✨ You just made my day 10x better!"
+  //   ];
+  //   return greetings[Math.floor(Math.random() * greetings.length)];
+  // };
 
   // Get a fun, varied system prompt to keep responses fresh and exciting! 🎭
   const getFunSystemPrompt = () => {
