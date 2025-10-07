@@ -7,7 +7,6 @@ const Video = forwardRef<HTMLVideoElement, object>((_, ref) => (
     autoPlay 
     loop
     ref={ref} 
-    volume={1.0}
     className="w-full h-full object-cover" 
     style={{ 
       backgroundColor: '#000',
