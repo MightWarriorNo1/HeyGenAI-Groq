@@ -13,9 +13,11 @@ const badges: string[] = [
 interface BadgeProps {
     setSelectedPrompt: (badge: string) => void;
     onFileUpload?: (file: File) => void;
+    onCameraClick?: () => void;
+    isCameraActive?: boolean;
 }
 
-export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload }) => {
+export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, onCameraClick, isCameraActive }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,7 +55,12 @@ export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload }
                 <Button
                     variant="outline"
                     size="icon"
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 h-8 w-8 sm:h-9 sm:w-9"
+                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
+                        isCameraActive 
+                            ? 'bg-red-500/20 border-red-500/50 text-red-400 hover:bg-red-500/30' 
+                            : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                    }`}
+                    onClick={onCameraClick}
                 >
                     <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>

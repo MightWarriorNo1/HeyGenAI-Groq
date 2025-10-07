@@ -8,6 +8,7 @@ import { Video } from './components/reusable/Video';
 import { Badges } from './components/reusable/Badges';
 import BrandHeader from './components/reusable/BrandHeader';
 import MicButton from './components/reusable/MicButton';
+import { CameraVideo } from './components/reusable/CameraVideo';
 import { Toaster } from "@/components/ui/toaster"
 
 
@@ -29,6 +30,13 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
+  
+  // Camera states
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  
   let timeout: any;
 
 
@@ -430,6 +438,103 @@ async function stop() {
   }
 }
 
+// Camera functions
+const handleCameraClick = async () => {
+  if (isCameraActive) {
+    // Stop camera
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraActive(false);
+  } else {
+    // Start camera
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240 },
+        audio: false
+      });
+      setCameraStream(stream);
+      setIsCameraActive(true);
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Could not access camera. Please check permissions.",
+      });
+    }
+  }
+};
+
+const handleMotionDetected = () => {
+  // Motion detected - user is moving
+  console.log('Motion detected');
+};
+
+const handleMotionStopped = async () => {
+  if (isAnalyzing) return; // Prevent multiple simultaneous analyses
+  
+  console.log('Motion stopped for 1 second - analyzing...');
+  setIsAnalyzing(true);
+  
+  try {
+    // Capture current frame for analysis
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!cameraVideoRef.current || !ctx) return;
+    
+    canvas.width = cameraVideoRef.current.videoWidth;
+    canvas.height = cameraVideoRef.current.videoHeight;
+    ctx.drawImage(cameraVideoRef.current, 0, 0);
+    
+    // Convert to base64 for OpenAI Vision API
+    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // Analyze with OpenAI Vision
+    const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Analyze this image and describe what you see. Focus on the person's facial expression, body language, and any notable details. Provide a brief but insightful analysis."
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageData
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 300
+    });
+    
+    const analysis = response.choices[0].message.content;
+    console.log('AI Analysis:', analysis);
+    
+    // You could display this analysis in a toast or overlay
+    toast({
+      title: "AI Analysis",
+      description: analysis || "Analysis completed",
+    });
+    
+  } catch (error) {
+    console.error('Error analyzing image:', error);
+    toast({
+      variant: "destructive",
+      title: "Analysis Error",
+      description: "Could not analyze the image. Please try again.",
+    });
+  } finally {
+    setIsAnalyzing(false);
+  }
+};
+
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
@@ -464,6 +569,10 @@ useEffect(() => {
     const handleLoadedMetadata = () => {
       console.log('Video metadata loaded');
       if (mediaStream.current) {
+        // Set maximum volume for avatar audio
+        mediaStream.current.volume = 1.0;
+        mediaStream.current.muted = false;
+        
         mediaStream.current.play().catch(error => {
           console.error('Autoplay failed:', error);
           // Try to play with user interaction
@@ -511,6 +620,26 @@ return (
         <Video ref={mediaStream} />
       </div>
 
+      {/* Camera Video - Right Corner */}
+      {isCameraActive && cameraStream && (
+        <div className="absolute top-4 right-4 w-80 h-60 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+          <CameraVideo
+            ref={cameraVideoRef}
+            stream={cameraStream}
+            onMotionDetected={handleMotionDetected}
+            onMotionStopped={handleMotionStopped}
+          />
+          {isAnalyzing && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <div className="text-white text-center">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto mb-2"></div>
+                <div className="text-sm">Analyzing...</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Loading overlay */}
       {(startLoading || startAvatarLoading) && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20">
@@ -528,6 +657,8 @@ return (
             <Badges
               setSelectedPrompt={setSelectedPrompt}
               onFileUpload={handleFileUpload}
+              onCameraClick={handleCameraClick}
+              isCameraActive={isCameraActive}
             />
             <MicButton
               isSpeaking={isSpeaking}

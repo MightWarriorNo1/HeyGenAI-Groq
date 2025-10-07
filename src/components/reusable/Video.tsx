@@ -7,6 +7,7 @@ const Video = forwardRef<HTMLVideoElement, object>((_, ref) => (
     autoPlay 
     loop
     ref={ref} 
+    volume={1.0}
     className="w-full h-full object-cover" 
     style={{ 
       backgroundColor: '#000',
@@ -21,6 +22,13 @@ const Video = forwardRef<HTMLVideoElement, object>((_, ref) => (
     }}
     onCanPlay={() => {
       console.log('Video can play');
+    }}
+    onLoadedMetadata={() => {
+      // Set volume to maximum when video loads
+      if (ref && typeof ref !== 'function' && ref.current) {
+        ref.current.volume = 1.0;
+        ref.current.muted = false;
+      }
     }}
   />
 ));
