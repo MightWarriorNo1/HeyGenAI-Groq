@@ -131,6 +131,137 @@ function App() {
     }
   };
 
+  // Function to handle file upload
+  const handleFileUpload = async (file: File) => {
+    try {
+      // Show success message
+      toast({
+        title: "File uploaded successfully!",
+        description: `File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`,
+      });
+
+      let aiResponse;
+
+      if (file.type.startsWith('image/')) {
+        // Handle images with GPT-4 Vision
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            // Remove the data:image/...;base64, prefix
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.readAsDataURL(file);
+        });
+
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${file.type};base64,${base64}`
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 1000
+        });
+
+      } else if (file.type.startsWith('video/')) {
+        // Handle videos - extract frame for analysis
+        const video = document.createElement('video');
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const videoUrl = URL.createObjectURL(file);
+        video.src = videoUrl;
+        
+        // Wait for video to load and extract a frame
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.currentTime = 1; // Get frame at 1 second
+          };
+          video.onseeked = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx?.drawImage(video, 0, 0);
+            resolve(null);
+          };
+        });
+
+        // Convert canvas to base64
+        const frameBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
+        
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:image/jpeg;base64,${frameBase64}`
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 1000
+        });
+
+        URL.revokeObjectURL(videoUrl);
+
+      } else if (file.type.startsWith('text/')) {
+        // Handle text files
+        const fileContent = await file.text();
+        const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
+        
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
+          messages: [
+            { role: 'user', content: prompt }
+          ]
+        });
+
+      } else {
+        // For other file types, provide basic analysis
+        const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
+        
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
+          messages: [
+            { role: 'user', content: prompt }
+          ]
+        });
+      }
+      
+      setInput(aiResponse.choices[0].message.content || '');
+      
+    } catch (error: any) {
+      console.error('Error processing file:', error);
+      toast({
+        variant: "destructive",
+        title: "Uh oh! Something went wrong.",
+        description: error.message,
+      });
+    }
+  };
+
   // Function to transcribe the audio to text and then get the respective response of the given prompt
   async function transcribeAudio(audioBlob: Blob) {
     try {
@@ -396,6 +527,7 @@ return (
           <div className="w-full max-w-4xl mx-auto">
             <Badges
               setSelectedPrompt={setSelectedPrompt}
+              onFileUpload={handleFileUpload}
             />
             <MicButton
               isSpeaking={isSpeaking}
