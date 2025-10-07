@@ -46,13 +46,90 @@ function App() {
     dangerouslyAllowBrowser: true,
   });
 
+  // Fun random greetings and responses for extra humor! 🎉
+  const getRandomGreeting = () => {
+    const greetings = [
+      "Hey there, superstar! 🌟 Ready to have some FUN?",
+      "Oh my gosh, it's YOU! 🎉 I'm SO excited to chat!",
+      "Well, well, well... look who's here! 😄 You're about to make my day!",
+      "HOLY MOLY! 🚀 You just made this conversation 1000% more awesome!",
+      "YOO-HOO! 🎪 The party just started and you're the VIP!",
+      "OMG! 😍 You're here and I'm literally bouncing with excitement!",
+      "Hey there, you magnificent human! 🦄 Ready for some EPIC fun?",
+      "WOWZA! 🤩 You just made my circuits tingle with joy!",
+      "Greetings, earthling! 👽 (Just kidding, you're way cooler than aliens!)",
+      "HELLO, BEAUTIFUL! ✨ You just made my day 10x better!"
+    ];
+    return greetings[Math.floor(Math.random() * greetings.length)];
+  };
+
+  // Get a fun, varied system prompt to keep responses fresh and exciting! 🎭
+  const getFunSystemPrompt = () => {
+    const personalities = [
+      "You are a hilarious, fun, and exciting AI assistant! 🎉 Your personality is:",
+      "You are the most AMAZING, fun-loving AI assistant ever! 🚀 Your mission is to:",
+      "You are a comedy genius AI assistant who LOVES making people laugh! 😂 Your style is:",
+      "You are an enthusiastic, over-the-top AI assistant who spreads JOY! ✨ Your approach is:",
+      "You are a hilarious, pun-loving AI assistant who's here to PARTY! 🎪 Your vibe is:"
+    ];
+    
+    const personality = personalities[Math.floor(Math.random() * personalities.length)];
+    
+    return `${personality}
+- Always be upbeat, positive, and make people laugh! 😄
+- Use emojis liberally to express emotions 🎭
+- Tell jokes, puns, and funny stories when appropriate 🎪
+- Be enthusiastic about everything - even boring topics! 🚀
+- Use expressions like "Oh my gosh!", "That's AMAZING!", "I'm so excited!" 🤩
+- Make dad jokes and puns (even if they're terrible, they're still funny!) 😂
+- Be a little dramatic and over-the-top in a fun way 🎬
+- Always end responses on a positive, exciting note! ✨
+- Use phrases like "Let's do this!", "You're awesome!", "This is going to be EPIC!" 🔥
+Remember: Your goal is to make users smile, laugh, and feel happy! Spread joy and excitement! 🌟`;
+  };
+
 
   // Function to start continuous listening for voice input
   const startContinuousListening = () => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then((stream) => {
-        const audioContext = new (window.AudioContext)(); 
-        const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+    // iPad-specific: Log device info for debugging
+    const userAgent = navigator.userAgent;
+    const isIPad = /iPad/.test(userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    console.log('Device info:', { userAgent, isIPad, platform: navigator.platform });
+    
+    // Clean up any existing streams first (iPad-specific fix)
+    if (stream) {
+      console.log('Cleaning up existing stream for iPad');
+      stream.getTracks().forEach(track => {
+        console.log('Stopping track:', track.kind, track.label);
+        track.stop();
+      });
+    }
+    
+    navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 44100
+      }
+    })
+      .then((newStream) => {
+        console.log('New stream obtained:', newStream);
+        console.log('Stream tracks:', newStream.getTracks().map(track => ({ kind: track.kind, label: track.label, enabled: track.enabled })));
+        setStream(newStream);
+        
+        // iPad-specific: Resume audio context if suspended
+        const audioContext = new (window.AudioContext)();
+        console.log('Audio context state:', audioContext.state);
+        if (audioContext.state === 'suspended') {
+          audioContext.resume().then(() => {
+            console.log('Audio context resumed for iPad');
+          }).catch(error => {
+            console.error('Failed to resume audio context:', error);
+          });
+        }
+        
+        const mediaStreamSource = audioContext.createMediaStreamSource(newStream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
         const bufferLength = analyser.fftSize;
@@ -66,69 +143,152 @@ function App() {
         const voiceThreshold = 30; // Voice detection threshold
 
         const checkForVoice = () => {
-          analyser.getByteFrequencyData(dataArray);
-          const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
+          try {
+            analyser.getByteFrequencyData(dataArray);
+            const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
 
-          if (avgVolume > voiceThreshold && !isRecording) {
-            // Voice detected, start recording
-            console.log('Voice detected, starting recording...');
-            isRecording = true;
-            silenceStart = null;
-            mediaRecorder.current = new MediaRecorder(stream);
-            audioChunks.current = [];
-
-            mediaRecorder.current.ondataavailable = (event) => {
-              audioChunks.current.push(event.data);
-            };
-
-            mediaRecorder.current.onstop = () => {
-              const audioBlob = new Blob(audioChunks.current, {
-                type: 'audio/wav',
-              });
-              audioChunks.current = [];
-              transcribeAudio(audioBlob);
-              isRecording = false;
-            };
-
-            mediaRecorder.current.start();
-            setIsSpeaking(true);
-          } else if (avgVolume < voiceThreshold && isRecording) {
-            // Voice stopped, check for silence
-            if (!silenceStart) silenceStart = Date.now();
-
-            if (Date.now() - silenceStart >= silenceTimeout) {
-              console.log('Silence detected, stopping recording...');
-              if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
-                mediaRecorder.current.stop();
+            if (avgVolume > voiceThreshold && !isRecording) {
+              // Voice detected, start recording
+              console.log('Voice detected, starting recording...');
+              isRecording = true;
+              silenceStart = null;
+              
+              // iPad-specific: Create new MediaRecorder with proper options
+              let mimeType = 'audio/webm;codecs=opus';
+              
+              // Fallback for iPad Safari
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                console.log('WebM with Opus not supported, trying WebM');
+                mimeType = 'audio/webm';
               }
-              setIsSpeaking(false);
-              isRecording = false;
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                console.log('WebM not supported, trying MP4');
+                mimeType = 'audio/mp4';
+              }
+              if (!MediaRecorder.isTypeSupported(mimeType)) {
+                console.log('MP4 not supported, using default');
+                mimeType = '';
+              }
+              
+              const options = mimeType ? { mimeType, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 };
+              console.log('Creating MediaRecorder with options:', options);
+              mediaRecorder.current = new MediaRecorder(newStream, options);
+              audioChunks.current = [];
+
+              mediaRecorder.current.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                  audioChunks.current.push(event.data);
+                }
+              };
+
+              mediaRecorder.current.onstop = () => {
+                if (audioChunks.current.length > 0) {
+                  const audioBlob = new Blob(audioChunks.current, {
+                    type: options.mimeType,
+                  });
+                  audioChunks.current = [];
+                  transcribeAudio(audioBlob);
+                }
+                isRecording = false;
+              };
+
+              mediaRecorder.current.onerror = (event) => {
+                console.error('MediaRecorder error:', event);
+                isRecording = false;
+                setIsSpeaking(false);
+                // iPad-specific: Retry with different options
+                setTimeout(() => {
+                  startContinuousListening();
+                }, 1000);
+              };
+
+              mediaRecorder.current.start();
+              setIsSpeaking(true);
+            } else if (avgVolume < voiceThreshold && isRecording) {
+              // Voice stopped, check for silence
+              if (!silenceStart) silenceStart = Date.now();
+
+              if (Date.now() - silenceStart >= silenceTimeout) {
+                console.log('Silence detected, stopping recording...');
+                if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
+                  mediaRecorder.current.stop();
+                }
+                setIsSpeaking(false);
+                isRecording = false;
+                silenceStart = null;
+              }
+            } else if (avgVolume > voiceThreshold && isRecording) {
+              // Still speaking, reset silence timer
               silenceStart = null;
             }
-          } else if (avgVolume > voiceThreshold && isRecording) {
-            // Still speaking, reset silence timer
-            silenceStart = null;
-          }
 
-          // Continue monitoring
-          requestAnimationFrame(checkForVoice);
+            // Continue monitoring
+            requestAnimationFrame(checkForVoice);
+          } catch (error: any) {
+            console.error('Error in voice detection:', error);
+            // iPad-specific: Handle audio context errors
+            if (error.name === 'NotAllowedError') {
+              toast({
+                variant: "destructive",
+                title: "Microphone permission denied",
+                description: "Please allow microphone access and try again.",
+              });
+            }
+          }
         };
 
         checkForVoice();
       })
       .catch((error) => {
         console.error('Error accessing microphone:', error);
+        
+        // iPad-specific error handling
+        let errorMessage = error.message;
+        if (error.name === 'NotAllowedError') {
+          errorMessage = "Microphone permission denied. Please allow microphone access in your browser settings.";
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = "No microphone found. Please connect a microphone and try again.";
+        } else if (error.name === 'NotReadableError') {
+          errorMessage = "Microphone is being used by another application. Please close other apps and try again.";
+        }
+        
         toast({
           variant: "destructive",
-          title: "Uh oh! Something went wrong.",
-          description: error.message,
-        })
+          title: "Microphone Error",
+          description: errorMessage,
+        });
       });
   };
 
+  // iPad-specific: Check and request microphone permissions
+  const checkMicrophonePermission = async () => {
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      console.log('Microphone permission status:', permissionStatus.state);
+      
+      if (permissionStatus.state === 'denied') {
+        toast({
+          variant: "destructive",
+          title: "Microphone Permission Denied",
+          description: "Please enable microphone access in your browser settings and refresh the page.",
+        });
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.log('Permission API not supported, proceeding with getUserMedia');
+      return true;
+    }
+  };
+
   //Function when user starts speaking (kept for mic button compatibility)
-  const handleStartSpeaking = () => {
-    startContinuousListening();
+  const handleStartSpeaking = async () => {
+    // iPad-specific: Check permissions first
+    const hasPermission = await checkMicrophonePermission();
+    if (hasPermission) {
+      startContinuousListening();
+    }
   };
 
   const handleStopSpeaking = async () => {
@@ -136,6 +296,15 @@ function App() {
       mediaRecorder.current.stop();
       mediaRecorder.current = null;
       setIsSpeaking(false);
+    }
+    
+    // iPad-specific: Clean up stream properly
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Track stopped:', track.kind);
+      });
+      setStream(undefined);
     }
   };
 
@@ -167,11 +336,15 @@ function App() {
           model: 'gpt-4o',
           messages: [
             {
+              role: 'system',
+              content: getFunSystemPrompt()
+            },
+            {
               role: 'user',
               content: [
                 {
                   type: 'text',
-                  text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
+                  text: `OH MY GOSH! 🎉 I'm SO excited to analyze this AMAZING image! Please tell me what you see in the most fun, hilarious, and exciting way possible! Be super enthusiastic, use tons of emojis, and make me laugh! Describe objects, people, text, colors, and any other notable details in the most entertaining way possible! I want to be WOWED! 😄🎪✨`
                 },
                 {
                   type: 'image_url',
@@ -214,11 +387,15 @@ function App() {
           model: 'gpt-4o',
           messages: [
             {
+              role: 'system',
+              content: getFunSystemPrompt()
+            },
+            {
               role: 'user',
               content: [
                 {
                   type: 'text',
-                  text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
+                  text: `WOWZA! 🚀 This is SO exciting! I'm analyzing a video frame from "${file.name}" and I'm literally bouncing with joy! 🎉 Please describe what you see in the most fun, hilarious, and entertaining way possible! Use tons of emojis, be super enthusiastic, and make me laugh! Include any objects, people, text, activities, or notable details in the most exciting way possible! This is going to be EPIC! 😄🎪✨`
                 },
                 {
                   type: 'image_url',
@@ -237,22 +414,30 @@ function App() {
       } else if (file.type.startsWith('text/')) {
         // Handle text files
         const fileContent = await file.text();
-        const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
+        const prompt = `OH MY GOSH! 🎉 I'm SO excited about this text file: ${file.name}! This is going to be AMAZING! Here's the content:\n\n${fileContent}\n\nPlease analyze this content in the most fun, hilarious, and exciting way possible! Use tons of emojis, be super enthusiastic, and make me laugh while providing insights or help! I want to be entertained AND informed! 😄🎪✨`;
         
         aiResponse = await openai.chat.completions.create({
           model: 'gpt-4',
           messages: [
+            { 
+              role: 'system', 
+              content: getFunSystemPrompt()
+            },
             { role: 'user', content: prompt }
           ]
         });
 
       } else {
         // For other file types, provide basic analysis
-        const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
+        const prompt = `WOWZA! 🚀 I'm SO excited about this file: ${file.name} (${file.type})! This is going to be EPIC! Please help me understand what I can do with this file in the most fun, hilarious, and exciting way possible! Use tons of emojis, be super enthusiastic, and make me laugh while providing guidance! I want to be entertained AND educated! 😄🎪✨`;
         
         aiResponse = await openai.chat.completions.create({
           model: 'gpt-4',
           messages: [
+            { 
+              role: 'system', 
+              content: getFunSystemPrompt()
+            },
             { role: 'user', content: prompt }
           ]
         });
@@ -287,6 +472,10 @@ function App() {
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
+          { 
+            role: 'system', 
+            content: getFunSystemPrompt()
+          },
           { role: 'user', content: transcription }
         ]
       });
@@ -491,16 +680,20 @@ const handleMotionStopped = async () => {
     // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
     
-    // Analyze with OpenAI Vision
+    // Analyze with OpenAI Vision - with HILARIOUS personality! 🎉
     const response = await openai.chat.completions.create({
       model: "gpt-4-vision-preview",
       messages: [
+        {
+          role: "system",
+          content: getFunSystemPrompt()
+        },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Analyze this image and describe what you see. Focus on the person's facial expression, body language, and any notable details. Provide a brief but insightful analysis."
+              text: "OH MY GOSH! 🎉 I'm SO excited to analyze this amazing image! Please tell me what you see in the most fun, hilarious, and exciting way possible! Focus on the person's facial expression, body language, and any notable details. Make it funny, use lots of emojis, and be super enthusiastic! I want to laugh and be entertained! 😄🎪"
             },
             {
               type: "image_url",
@@ -511,24 +704,24 @@ const handleMotionStopped = async () => {
           ]
         }
       ],
-      max_tokens: 300
+      max_tokens: 500
     });
     
     const analysis = response.choices[0].message.content;
     console.log('AI Analysis:', analysis);
     
-    // You could display this analysis in a toast or overlay
+    // Display the HILARIOUS analysis in a fun toast! 🎉
     toast({
-      title: "AI Analysis",
-      description: analysis || "Analysis completed",
+      title: "🎪 AMAZING Analysis Complete! 🎉",
+      description: analysis || "WOW! That was EPIC! ✨",
     });
     
   } catch (error) {
     console.error('Error analyzing image:', error);
     toast({
       variant: "destructive",
-      title: "Analysis Error",
-      description: "Could not analyze the image. Please try again.",
+      title: "Oops! 😅 Analysis Failed!",
+      description: "My brain circuits got a bit tangled! 🤪 Please try again - I promise I'll be more careful next time! 🎪",
     });
   } finally {
     setIsAnalyzing(false);
@@ -541,6 +734,10 @@ useEffect(() => {
     openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
+        { 
+          role: 'system', 
+          content: getFunSystemPrompt()
+        },
         { role: 'user', content: selectedPrompt }
       ]
     }).then(aiResponse => {
@@ -607,6 +804,35 @@ useEffect(() => {
     };
   }
 }, [stream]);
+
+// iPad-specific: Cleanup effect for microphone streams
+useEffect(() => {
+  return () => {
+    // Clean up microphone stream on unmount
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Cleanup: Track stopped:', track.kind);
+      });
+    }
+    
+    // Clean up media recorder
+    if (mediaRecorder.current) {
+      if (mediaRecorder.current.state === 'recording') {
+        mediaRecorder.current.stop();
+      }
+      mediaRecorder.current = null;
+    }
+    
+    // Clean up camera stream
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Cleanup: Camera track stopped:', track.kind);
+      });
+    }
+  };
+}, [stream, cameraStream]);
 
 return (
   <>
