@@ -7,34 +7,95 @@ export interface CameraDevice {
 
 export const getCameraDevices = async (): Promise<CameraDevice[]> => {
   try {
-    // Request permission first
-    await navigator.mediaDevices.getUserMedia({ video: true });
+    // First, try to get a temporary stream to ensure permissions are granted
+    // This is required for device labels to be populated
+    const tempStream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: 'user' } // Start with front camera
+    });
     
+    // Stop the temporary stream
+    tempStream.getTracks().forEach(track => track.stop());
+    
+    // Now enumerate devices with proper labels
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices
+    const videoDevices = devices
       .filter(device => device.kind === 'videoinput')
-      .map(device => ({
-        deviceId: device.deviceId,
-        label: device.label || `Camera ${device.deviceId.slice(0, 8)}`,
-        kind: device.kind,
-        groupId: device.groupId
-      }));
+      .map((device, index) => {
+        let label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+        
+        // Try to identify front vs back camera based on label
+        if (label.toLowerCase().includes('front') || label.toLowerCase().includes('user')) {
+          label = '📱 Front Camera';
+        } else if (label.toLowerCase().includes('back') || label.toLowerCase().includes('environment')) {
+          label = '📷 Back Camera';
+        } else if (index === 0) {
+          label = '📱 Front Camera';
+        } else if (index === 1) {
+          label = '📷 Back Camera';
+        } else {
+          label = `📷 Camera ${index + 1}`;
+        }
+        
+        return {
+          deviceId: device.deviceId,
+          label: label,
+          kind: device.kind,
+          groupId: device.groupId
+        };
+      });
+    
+    console.log('Found camera devices:', videoDevices);
+    return videoDevices;
   } catch (error) {
     console.error('Error getting camera devices:', error);
-    return [];
+    // Fallback: try to enumerate without permission
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices
+        .filter(device => device.kind === 'videoinput')
+        .map(device => ({
+          deviceId: device.deviceId,
+          label: device.label || `Camera ${device.deviceId.slice(0, 8)}`,
+          kind: device.kind,
+          groupId: device.groupId
+        }));
+    } catch (fallbackError) {
+      console.error('Fallback device enumeration failed:', fallbackError);
+      return [];
+    }
   }
 };
 
 export const getCameraStream = async (deviceId?: string): Promise<MediaStream> => {
-  const constraints: MediaStreamConstraints = {
-    video: deviceId 
-      ? { deviceId: { exact: deviceId }, width: 320, height: 240 }
-      : { width: 320, height: 240 },
-    audio: false
-  };
+  let constraints: MediaStreamConstraints;
+  
+  if (deviceId) {
+    // Use specific device
+    constraints = {
+      video: { 
+        deviceId: { exact: deviceId }, 
+        width: { ideal: 640 }, 
+        height: { ideal: 480 },
+        facingMode: deviceId.includes('back') ? 'environment' : 'user'
+      },
+      audio: false
+    };
+  } else {
+    // Default to front camera
+    constraints = {
+      video: { 
+        facingMode: 'user',
+        width: { ideal: 640 }, 
+        height: { ideal: 480 }
+      },
+      audio: false
+    };
+  }
 
   try {
-    return await navigator.mediaDevices.getUserMedia(constraints);
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log('Camera stream obtained:', stream.getVideoTracks().length, 'video tracks');
+    return stream;
   } catch (error) {
     console.error('Error accessing camera:', error);
     throw error;
@@ -54,3 +115,4 @@ export const getCameraError = (error: any): string => {
     return 'Failed to access camera. Please check your camera and try again.';
   }
 };
+

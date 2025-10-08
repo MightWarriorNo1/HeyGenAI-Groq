@@ -518,10 +518,37 @@ const handleMotionStopped = async () => {
   setIsAnalyzing(true);
   
   try {
+    // Check if camera video is ready
+    if (!cameraVideoRef.current) {
+      console.error('❌ Camera video ref not available');
+      toast({
+        variant: "destructive",
+        title: "Camera Error",
+        description: "Camera video is not available. Please try again.",
+      });
+      return;
+    }
+    
+    if (cameraVideoRef.current.readyState < 2) {
+      console.error('❌ Video not ready, readyState:', cameraVideoRef.current.readyState);
+      toast({
+        variant: "destructive",
+        title: "Camera Not Ready",
+        description: "Camera video is not ready yet. Please wait a moment and try again.",
+      });
+      return;
+    }
+    
+    console.log('📸 Capturing frame from camera...');
+    console.log('Video dimensions:', cameraVideoRef.current.videoWidth, 'x', cameraVideoRef.current.videoHeight);
+    
     // Capture current frame for analysis
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!cameraVideoRef.current || !ctx) return;
+    if (!ctx) {
+      console.error('❌ Could not get canvas context');
+      return;
+    }
     
     canvas.width = cameraVideoRef.current.videoWidth;
     canvas.height = cameraVideoRef.current.videoHeight;
@@ -529,6 +556,7 @@ const handleMotionStopped = async () => {
     
     // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    console.log('📷 Frame captured, sending to OpenAI Vision API...');
     
     // Analyze with OpenAI Vision
     const response = await openai.chat.completions.create({
@@ -688,6 +716,17 @@ return (
               </div>
             </div>
           )}
+          
+          {/* Manual Analysis Button */}
+          <div className="absolute bottom-2 right-2">
+            <button
+              onClick={handleMotionStopped}
+              disabled={isAnalyzing}
+              className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded text-xs disabled:opacity-50"
+            >
+              {isAnalyzing ? 'Analyzing...' : 'Analyze Now'}
+            </button>
+          </div>
         </div>
       )}
 

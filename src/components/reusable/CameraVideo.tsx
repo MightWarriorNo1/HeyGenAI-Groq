@@ -18,8 +18,18 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
 
       const video = ref as React.MutableRefObject<HTMLVideoElement>;
       if (video.current) {
+        console.log('Setting up video stream:', stream);
         video.current.srcObject = stream;
-        video.current.play();
+        video.current.play().catch(console.error);
+        
+        // Add event listeners for debugging
+        video.current.onloadedmetadata = () => {
+          console.log('Video metadata loaded:', video.current?.videoWidth, 'x', video.current?.videoHeight);
+        };
+        
+        video.current.oncanplay = () => {
+          console.log('Video can play - ready for motion detection');
+        };
       }
     }, [stream, ref]);
 
@@ -35,6 +45,12 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
 
       const detectMotion = () => {
         if (!video.current || !canvas || !ctx) return;
+        
+        // Check if video is ready
+        if (video.current.readyState < 2) {
+          requestAnimationFrame(detectMotion);
+          return;
+        }
 
         // Set canvas size to match video
         canvas.width = video.current.videoWidth;
@@ -46,8 +62,9 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
 
         if (previousFrameRef.current) {
           const motion = calculateMotion(previousFrameRef.current, currentFrame);
+          console.log('Motion detected:', motion);
           
-          if (motion > 0.1) { // Threshold for motion detection
+          if (motion > 0.05) { // Lower threshold for better sensitivity
             lastMotionTimeRef.current = Date.now();
             onMotionDetected?.();
             
@@ -56,9 +73,10 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
               clearTimeout(motionTimeoutRef.current);
             }
           } else {
-            // Check if motion has stopped for 1 second
+            // Check if motion has stopped for 2 seconds
             const timeSinceLastMotion = Date.now() - lastMotionTimeRef.current;
-            if (timeSinceLastMotion > 1000 && lastMotionTimeRef.current > 0) {
+            if (timeSinceLastMotion > 2000 && lastMotionTimeRef.current > 0) {
+              console.log('Motion stopped - triggering analysis');
               onMotionStopped?.();
               lastMotionTimeRef.current = 0; // Reset to prevent repeated calls
             }
