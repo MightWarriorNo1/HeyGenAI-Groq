@@ -1,7 +1,8 @@
 
 import { Button } from "@/components/ui/button"
 import React, { useRef } from "react"
-import { Paperclip, Camera } from "lucide-react"
+import { Paperclip } from "lucide-react"
+import { CameraSelector } from "./CameraSelector"
 
 const badges: string[] = [
     "🤔 Mind-Bending Mysteries",
@@ -14,10 +15,21 @@ interface BadgeProps {
     setSelectedPrompt: (badge: string) => void;
     onFileUpload?: (file: File) => void;
     onCameraClick?: () => void;
+    onCameraSelect?: (deviceId: string) => void;
     isCameraActive?: boolean;
+    isCameraSelectorOpen?: boolean;
+    onCameraSelectorToggle?: () => void;
 }
 
-export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, onCameraClick, isCameraActive }) => {
+export const Badges: React.FC<BadgeProps> = ({ 
+    setSelectedPrompt, 
+    onFileUpload, 
+    onCameraClick, 
+    onCameraSelect,
+    isCameraActive,
+    isCameraSelectorOpen,
+    onCameraSelectorToggle
+}) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,18 +64,14 @@ export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, 
                 >
                     <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
-                <Button
-                    variant="outline"
-                    size="icon"
-                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
-                        isCameraActive 
-                            ? 'bg-red-500/20 border-red-500/50 text-red-400 hover:bg-red-500/30' 
-                            : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
-                    }`}
-                    onClick={onCameraClick}
-                >
-                    <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
-                </Button>
+                <CameraSelector
+                    onCameraSelect={onCameraSelect || (() => {})}
+                    onCameraClick={onCameraClick}
+                    isOpen={isCameraSelectorOpen || false}
+                    onToggle={onCameraSelectorToggle || (() => {})}
+                    disabled={false}
+                    isCameraActive={isCameraActive}
+                />
             </div>
             
             {/* Main buttons - responsive layout */}

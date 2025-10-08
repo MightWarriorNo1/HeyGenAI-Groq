@@ -9,6 +9,7 @@ import { Badges } from './components/reusable/Badges';
 import BrandHeader from './components/reusable/BrandHeader';
 import MicButton from './components/reusable/MicButton';
 import { CameraVideo } from './components/reusable/CameraVideo';
+import { getCameraStream, getCameraError } from './utils/cameraUtils';
 import { Toaster } from "@/components/ui/toaster"
 
 
@@ -35,6 +36,8 @@ function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [isCameraSelectorOpen, setIsCameraSelectorOpen] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   
   let timeout: any;
@@ -459,21 +462,45 @@ const handleCameraClick = async () => {
       setCameraStream(null);
     }
     setIsCameraActive(false);
+    setIsCameraSelectorOpen(false);
   } else {
-    // Start camera
+    // Start camera with selected device or default
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240 },
-        audio: false
-      });
+      const stream = await getCameraStream(selectedCameraId || undefined);
       setCameraStream(stream);
       setIsCameraActive(true);
+      setIsCameraSelectorOpen(false);
     } catch (error) {
       console.error('Error accessing camera:', error);
+      const errorMessage = getCameraError(error);
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: "Could not access camera. Please check permissions.",
+        description: errorMessage,
+      });
+    }
+  }
+};
+
+const handleCameraSelect = async (deviceId: string) => {
+  setSelectedCameraId(deviceId);
+  
+  // If camera is already active, restart with new device
+  if (isCameraActive) {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      const stream = await getCameraStream(deviceId);
+      setCameraStream(stream);
+    } catch (error) {
+      console.error('Error switching camera:', error);
+      const errorMessage = getCameraError(error);
+      toast({
+        variant: "destructive",
+        title: "Camera Switch Error",
+        description: errorMessage,
       });
     }
   }
@@ -683,7 +710,10 @@ return (
               setSelectedPrompt={setSelectedPrompt}
               onFileUpload={handleFileUpload}
               onCameraClick={handleCameraClick}
+              onCameraSelect={handleCameraSelect}
               isCameraActive={isCameraActive}
+              isCameraSelectorOpen={isCameraSelectorOpen}
+              onCameraSelectorToggle={() => setIsCameraSelectorOpen(!isCameraSelectorOpen)}
             />
             <MicButton
               isSpeaking={isSpeaking}
