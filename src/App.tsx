@@ -800,21 +800,29 @@ return (
 
       {/* Camera Video - Right Corner */}
       {isCameraActive && cameraStream && (
-        <div className="absolute top-4 right-4 w-48 h-36 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+        <div className="absolute top-20 right-4 w-32 h-24 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
           <CameraVideo
             ref={cameraVideoRef}
             stream={cameraStream}
             onMotionDetected={handleMotionDetected}
             onMotionStopped={handleMotionStopped}
           />
-          {/* {isAnalyzing && (
+          {/* Close button */}
+          <button
+            onClick={handleCameraClick}
+            className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold transition-colors z-30"
+            title="Exit Vision Mode"
+          >
+            ×
+          </button>
+          {isAnalyzing && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <div className="text-white text-center">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto mb-2"></div>
                 <div className="text-sm">Analyzing...</div>
               </div>
             </div>
-          )} */}
+          )}
         </div>
       )}
 
