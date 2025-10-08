@@ -798,9 +798,9 @@ return (
         <Video ref={mediaStream} />
       </div>
 
-      {/* Camera Video - Bottom Left Corner */}
+      {/* Camera Video - Right Corner */}
       {isCameraActive && cameraStream && (
-        <div className="absolute bottom-20 left-4 w-64 h-48 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+        <div className="absolute top-4 right-4 w-48 h-36 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
           <CameraVideo
             ref={cameraVideoRef}
             stream={cameraStream}
