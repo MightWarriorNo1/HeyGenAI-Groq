@@ -47,6 +47,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const [volumeLevel, setVolumeLevel] = useState<number>(2.0); // Default to 2x volume boost
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   
   let timeout: any;
 
@@ -60,12 +61,24 @@ function App() {
     }
   };
 
+
   // Function to update volume level
   const updateVolume = (newVolume: number) => {
     setVolumeLevel(newVolume);
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = newVolume;
+    
+    // Simple approach: just set the video volume
+    if (mediaStream.current) {
+      mediaStream.current.volume = Math.min(newVolume, 1.0);
+      console.log(`Video volume set to: ${mediaStream.current.volume}`);
     }
+    
+    // Also try to boost using Web Audio API if available
+    if (audioContextRef.current && gainNodeRef.current) {
+      gainNodeRef.current.gain.value = newVolume;
+      console.log(`Gain node set to: ${newVolume}`);
+    }
+    
+    console.log(`Volume updated to: ${newVolume}x`);
   };
 
   // Function to process analysis queue
@@ -777,14 +790,29 @@ useEffect(() => {
         // Set up audio context for volume boost
         setupAudioContext();
         
+        // Create a hidden audio element for volume boosting
+        if (!audioElementRef.current) {
+          audioElementRef.current = document.createElement('audio');
+          audioElementRef.current.style.display = 'none';
+          audioElementRef.current.volume = volumeLevel;
+          document.body.appendChild(audioElementRef.current);
+        }
+        
         // Connect video audio to gain node for volume boost
         if (audioContextRef.current && gainNodeRef.current && mediaStream.current) {
           try {
+            // Resume audio context if suspended
+            if (audioContextRef.current.state === 'suspended') {
+              audioContextRef.current.resume();
+            }
+            
             const source = audioContextRef.current.createMediaElementSource(mediaStream.current);
             source.connect(gainNodeRef.current);
             console.log('Audio connected to gain node for volume boost');
           } catch (error) {
             console.warn('Could not connect audio to gain node:', error);
+            // Fallback: just set video volume higher
+            mediaStream.current.volume = Math.min(volumeLevel, 1.0);
           }
         }
         
@@ -894,6 +922,18 @@ return (
                 }}
               />
               <span className="text-white text-sm font-mono">{volumeLevel.toFixed(1)}x</span>
+              <button
+                onClick={() => {
+                  console.log('Current video element:', mediaStream.current);
+                  console.log('Current volume level:', volumeLevel);
+                  console.log('Video volume:', mediaStream.current?.volume);
+                  console.log('Audio context state:', audioContextRef.current?.state);
+                  console.log('Gain node value:', gainNodeRef.current?.gain.value);
+                }}
+                className="text-white text-xs bg-blue-600 px-2 py-1 rounded"
+              >
+                Debug
+              </button>
             </div>
             <Badges
               setSelectedPrompt={setSelectedPrompt}
