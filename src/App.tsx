@@ -815,14 +815,14 @@ return (
           >
             ×
           </button>
-          {isAnalyzing && (
+          {/* {isAnalyzing && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <div className="text-white text-center">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto mb-2"></div>
                 <div className="text-sm">Analyzing...</div>
               </div>
             </div>
-          )}
+          )} */}
         </div>
       )}
 
