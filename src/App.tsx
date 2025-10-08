@@ -629,18 +629,19 @@ const handleMotionStopped = async () => {
           - Use puns, jokes, and witty observations about what you see
           - Be enthusiastic and make people laugh
           - Add humorous commentary about facial expressions, poses, or situations
-          - Use emojis to enhance the humor
           - Make funny comparisons or references
           - Keep it light-hearted and positive
           - Always end with a funny observation or joke
-          - Keep responses concise (under 200 characters) for real-time display`
+          - Keep responses concise (under 200 characters) for real-time display
+          - Write as if you're speaking directly to the person (no emojis in speech)
+          - Use conversational, natural language that sounds good when spoken aloud`
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! 😄"
+              text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! Speak directly to the person as if you're commenting on what they're doing right now."
             },
             {
               type: "image_url",
@@ -657,7 +658,21 @@ const handleMotionStopped = async () => {
     const analysis = response.choices[0].message.content;
     console.log('🎪 My hilarious analysis:', analysis);
     
-    // Display analysis in a toast
+    // Make the avatar speak the analysis
+    if (analysis && avatar.current && data?.sessionId) {
+      try {
+        await avatar.current.speak({ 
+          taskRequest: { 
+            text: analysis, 
+            sessionId: data.sessionId 
+          } 
+        });
+      } catch (speakError) {
+        console.error('Error making avatar speak:', speakError);
+      }
+    }
+    
+    // Display analysis in a toast as well
     toast({
       title: "🎭 Real-time Analysis!",
       description: analysis || "I've got some funny observations to share! 😄",
