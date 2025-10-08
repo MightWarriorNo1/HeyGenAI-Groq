@@ -39,6 +39,36 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const audioContext = useRef<AudioContext | null>(null);
+  const gainNode = useRef<GainNode | null>(null);
+
+  // Function to set up audio amplification
+  const setupAudioAmplification = (videoElement: HTMLVideoElement) => {
+    try {
+      // Create audio context if it doesn't exist
+      if (!audioContext.current) {
+        audioContext.current = new (window.AudioContext)();
+      }
+
+      // Create gain node for volume amplification
+      if (!gainNode.current) {
+        gainNode.current = audioContext.current.createGain();
+        // Set gain to 2.0 (double the volume) - you can increase this further if needed
+        gainNode.current.gain.value = 2.0;
+      }
+
+      // Create media element source from video
+      const source = audioContext.current.createMediaElementSource(videoElement);
+      
+      // Connect source to gain node, then to destination
+      source.connect(gainNode.current);
+      gainNode.current.connect(audioContext.current.destination);
+
+      console.log('Audio amplification set up with 2x volume boost');
+    } catch (error) {
+      console.error('Error setting up audio amplification:', error);
+    }
+  };
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
@@ -750,6 +780,9 @@ useEffect(() => {
         // Set maximum volume for avatar audio
         mediaStream.current.volume = 1.0;
         mediaStream.current.muted = false;
+        
+        // Set up audio amplification for louder volume
+        setupAudioAmplification(mediaStream.current);
         
         mediaStream.current.play().catch(error => {
           console.error('Autoplay failed:', error);
