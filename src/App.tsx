@@ -37,10 +37,49 @@ function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const analysisQueueRef = useRef<string[]>([]);
+  const isProcessingQueueRef = useRef<boolean>(false);
   
   let timeout: any;
+
+  // Function to process analysis queue
+  const processAnalysisQueue = async () => {
+    if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) return;
+    
+    isProcessingQueueRef.current = true;
+    const analysis = analysisQueueRef.current.shift();
+    
+    if (analysis && avatar.current && data?.sessionId) {
+      try {
+        setIsAvatarSpeaking(true);
+        await avatar.current.speak({ 
+          taskRequest: { 
+            text: analysis, 
+            sessionId: data.sessionId 
+          } 
+        });
+        
+        // Wait a bit after speaking before processing next item
+        setTimeout(() => {
+          setIsAvatarSpeaking(false);
+          isProcessingQueueRef.current = false;
+          // Process next item in queue
+          if (analysisQueueRef.current.length > 0) {
+            setTimeout(processAnalysisQueue, 1000);
+          }
+        }, 2000);
+      } catch (speakError) {
+        console.error('Error making avatar speak:', speakError);
+        setIsAvatarSpeaking(false);
+        isProcessingQueueRef.current = false;
+      }
+    } else {
+      isProcessingQueueRef.current = false;
+    }
+  };
 
   // Function to generate dynamic buttons based on conversation context
   const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
@@ -572,12 +611,12 @@ const handleCameraClick = async () => {
       setCameraStream(stream);
       setIsCameraActive(true);
       
-      // Start periodic analysis every 5 seconds
+      // Start periodic analysis every 8 seconds (less frequent to avoid overwhelming)
       analysisIntervalRef.current = setInterval(() => {
-        if (cameraVideoRef.current && !isAnalyzing) {
+        if (cameraVideoRef.current && !isAnalyzing && !isAvatarSpeaking) {
           handleMotionStopped(); // Trigger analysis
         }
-      }, 5000);
+      }, 8000);
       
       toast({
         title: "📸 Camera Activated!",
@@ -600,7 +639,7 @@ const handleMotionDetected = () => {
 };
 
 const handleMotionStopped = async () => {
-  if (isAnalyzing) return; // Prevent multiple simultaneous analyses
+  if (isAnalyzing || isAvatarSpeaking) return; // Prevent analysis while avatar is speaking or already analyzing
   
   console.log('🎭 Time to analyze this masterpiece! Let me put on my comedy glasses...');
   setIsAnalyzing(true);
@@ -658,33 +697,17 @@ const handleMotionStopped = async () => {
     const analysis = response.choices[0].message.content;
     console.log('🎪 My hilarious analysis:', analysis);
     
-    // Make the avatar speak the analysis
-    if (analysis && avatar.current && data?.sessionId) {
-      try {
-        await avatar.current.speak({ 
-          taskRequest: { 
-            text: analysis, 
-            sessionId: data.sessionId 
-          } 
-        });
-      } catch (speakError) {
-        console.error('Error making avatar speak:', speakError);
+    // Add analysis to queue for avatar to speak
+    if (analysis) {
+      analysisQueueRef.current.push(analysis);
+      // Process queue if not already processing
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
       }
     }
     
-    // Display analysis in a toast as well
-    toast({
-      title: "🎭 Real-time Analysis!",
-      description: analysis || "I've got some funny observations to share! 😄",
-    });
-    
   } catch (error) {
     console.error('Error analyzing image:', error);
-    toast({
-      variant: "destructive",
-      title: "My eyes got a bit blurry! 👀💫",
-      description: "I couldn't quite see what you're up to there! Maybe try again - I promise I'll be more observant this time! 😄",
-    });
   } finally {
     setIsAnalyzing(false);
   }
@@ -775,23 +798,23 @@ return (
         <Video ref={mediaStream} />
       </div>
 
-      {/* Camera Video - Right Corner */}
+      {/* Camera Video - Bottom Left Corner */}
       {isCameraActive && cameraStream && (
-        <div className="absolute top-4 right-4 w-80 h-60 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+        <div className="absolute bottom-20 left-4 w-64 h-48 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
           <CameraVideo
             ref={cameraVideoRef}
             stream={cameraStream}
             onMotionDetected={handleMotionDetected}
             onMotionStopped={handleMotionStopped}
           />
-          {isAnalyzing && (
+          {/* {isAnalyzing && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <div className="text-white text-center">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto mb-2"></div>
                 <div className="text-sm">Analyzing...</div>
               </div>
             </div>
-          )}
+          )} */}
         </div>
       )}
 
