@@ -27,21 +27,6 @@ const Video = forwardRef<HTMLVideoElement, object>((_, ref) => (
       if (ref && typeof ref !== 'function' && ref.current) {
         ref.current.volume = 1.0;
         ref.current.muted = false;
-        
-        // Set up audio amplification for louder volume
-        try {
-          const audioContext = new (window.AudioContext)();
-          const gainNode = audioContext.createGain();
-          gainNode.gain.value = 2.0; // Double the volume
-          
-          const source = audioContext.createMediaElementSource(ref.current);
-          source.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          console.log('Video audio amplification set up with 2x volume boost');
-        } catch (error) {
-          console.error('Error setting up video audio amplification:', error);
-        }
       }
     }}
   />

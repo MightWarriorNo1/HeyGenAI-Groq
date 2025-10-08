@@ -39,41 +39,34 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
-  const audioContext = useRef<AudioContext | null>(null);
-  const gainNode = useRef<GainNode | null>(null);
-
-  // Function to set up audio amplification
-  const setupAudioAmplification = (videoElement: HTMLVideoElement) => {
-    try {
-      // Create audio context if it doesn't exist
-      if (!audioContext.current) {
-        audioContext.current = new (window.AudioContext)();
-      }
-
-      // Create gain node for volume amplification
-      if (!gainNode.current) {
-        gainNode.current = audioContext.current.createGain();
-        // Set gain to 2.0 (double the volume) - you can increase this further if needed
-        gainNode.current.gain.value = 2.0;
-      }
-
-      // Create media element source from video
-      const source = audioContext.current.createMediaElementSource(videoElement);
-      
-      // Connect source to gain node, then to destination
-      source.connect(gainNode.current);
-      gainNode.current.connect(audioContext.current.destination);
-
-      console.log('Audio amplification set up with 2x volume boost');
-    } catch (error) {
-      console.error('Error setting up audio amplification:', error);
-    }
-  };
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
+  // Audio context and gain node for volume control
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const [volumeLevel, setVolumeLevel] = useState<number>(2.0); // Default to 2x volume boost
+  
   let timeout: any;
+
+  // Function to set up audio context with gain control for volume boost
+  const setupAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext)();
+      gainNodeRef.current = audioContextRef.current.createGain();
+      gainNodeRef.current.gain.value = volumeLevel;
+      gainNodeRef.current.connect(audioContextRef.current.destination);
+    }
+  };
+
+  // Function to update volume level
+  const updateVolume = (newVolume: number) => {
+    setVolumeLevel(newVolume);
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = newVolume;
+    }
+  };
 
   // Function to process analysis queue
   const processAnalysisQueue = async () => {
@@ -781,8 +774,19 @@ useEffect(() => {
         mediaStream.current.volume = 1.0;
         mediaStream.current.muted = false;
         
-        // Set up audio amplification for louder volume
-        setupAudioAmplification(mediaStream.current);
+        // Set up audio context for volume boost
+        setupAudioContext();
+        
+        // Connect video audio to gain node for volume boost
+        if (audioContextRef.current && gainNodeRef.current && mediaStream.current) {
+          try {
+            const source = audioContextRef.current.createMediaElementSource(mediaStream.current);
+            source.connect(gainNodeRef.current);
+            console.log('Audio connected to gain node for volume boost');
+          } catch (error) {
+            console.warn('Could not connect audio to gain node:', error);
+          }
+        }
         
         mediaStream.current.play().catch(error => {
           console.error('Autoplay failed:', error);
@@ -874,6 +878,23 @@ return (
       {isSessionStarted && (
         <div className='absolute bottom-0 left-0 right-0 flex flex-col justify-center p-2 z-10'>
           <div className="w-full max-w-4xl mx-auto">
+            {/* Volume Control */}
+            <div className="mb-4 flex items-center justify-center space-x-3 bg-black/50 rounded-lg p-3">
+              <span className="text-white text-sm">🔊 Volume:</span>
+              <input
+                type="range"
+                min="0.5"
+                max="5.0"
+                step="0.1"
+                value={volumeLevel}
+                onChange={(e) => updateVolume(parseFloat(e.target.value))}
+                className="w-32 h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((volumeLevel - 0.5) / 4.5) * 100}%, #d1d5db ${((volumeLevel - 0.5) / 4.5) * 100}%, #d1d5db 100%)`
+                }}
+              />
+              <span className="text-white text-sm font-mono">{volumeLevel.toFixed(1)}x</span>
+            </div>
             <Badges
               setSelectedPrompt={setSelectedPrompt}
               onFileUpload={handleFileUpload}
