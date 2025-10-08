@@ -4,10 +4,10 @@ import React, { useRef } from "react"
 import { Paperclip, Camera } from "lucide-react"
 
 const badges: string[] = [
-    "Problem Solving",
-    "Financial Advice", 
-    "Relationships",
-    "Life Coach"
+    "🤔 Mind-Bending Mysteries",
+    "💰 Money Magic & Mayhem", 
+    "💕 Love & Laughter Therapy",
+    "🎭 Life's Comedy Coach"
 ]
 
 interface BadgeProps {

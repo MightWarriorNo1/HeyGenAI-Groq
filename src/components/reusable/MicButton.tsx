@@ -25,7 +25,7 @@ const MicButton = ({ isSpeaking, onClick,
       >
         <FaMicrophone size={16} className="sm:w-5 sm:h-5" />
       </Button>
-      <span className="text-xs sm:text-sm text-center">{isSpeaking ? 'Tap to Stop Speaking' : 'Tap to Speak'}</span>
+      <span className="text-xs sm:text-sm text-center">{isSpeaking ? '🎤 Stop the comedy show!' : '🎭 Ready to make me laugh?'}</span>
       {/* <div className='flex flex-col sm:flex-row gap-2 items-center'>
         <Button 
           onClick={stopAvatar} 

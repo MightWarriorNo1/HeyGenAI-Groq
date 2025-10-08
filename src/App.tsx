@@ -71,7 +71,7 @@ function App() {
 
           if (avgVolume > voiceThreshold && !isRecording) {
             // Voice detected, start recording
-            console.log('Voice detected, starting recording...');
+            console.log('🎤 Someone is trying to talk to me! Let me listen...');
             isRecording = true;
             silenceStart = null;
             mediaRecorder.current = new MediaRecorder(stream);
@@ -97,7 +97,7 @@ function App() {
             if (!silenceStart) silenceStart = Date.now();
 
             if (Date.now() - silenceStart >= silenceTimeout) {
-              console.log('Silence detected, stopping recording...');
+              console.log('🤫 Ah, the silence! Let me process what you said...');
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
@@ -287,6 +287,18 @@ function App() {
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
+          { 
+            role: 'system', 
+            content: `You are a hilarious, witty AI assistant with a great sense of humor! Your responses should be:
+            - Funny and entertaining, making people laugh
+            - Use puns, jokes, and witty observations
+            - Be enthusiastic and exciting in your delivery
+            - Add humor to every response while still being helpful
+            - Use emojis occasionally to enhance the humor
+            - Make references to funny situations or scenarios
+            - Keep responses conversational and engaging
+            - Always end on a positive, funny note`
+          },
           { role: 'user', content: transcription }
         ]
       });
@@ -295,8 +307,8 @@ function App() {
       console.error('Error transcribing audio:', error);
       toast({
         variant: "destructive",
-        title: "Uh oh! Something went wrong.",
-        description: error.message,
+        title: "Oops! My circuits got a bit tangled! 🤖⚡",
+        description: `Looks like I had a little hiccup: ${error.message}. Don't worry, I'm still here and ready to chat! 😄`,
       })
     }
   }
@@ -469,13 +481,13 @@ const handleCameraClick = async () => {
 
 const handleMotionDetected = () => {
   // Motion detected - user is moving
-  console.log('Motion detected');
+  console.log('👀 Ooh! I see some movement! Someone is getting active!');
 };
 
 const handleMotionStopped = async () => {
   if (isAnalyzing) return; // Prevent multiple simultaneous analyses
   
-  console.log('Motion stopped for 1 second - analyzing...');
+  console.log('🎭 Time to analyze this masterpiece! Let me put on my comedy glasses...');
   setIsAnalyzing(true);
   
   try {
@@ -496,11 +508,23 @@ const handleMotionStopped = async () => {
       model: "gpt-4-vision-preview",
       messages: [
         {
+          role: "system",
+          content: `You are a hilarious AI that analyzes images with humor and wit! Your analysis should be:
+          - Extremely funny and entertaining
+          - Use puns, jokes, and witty observations about what you see
+          - Be enthusiastic and make people laugh
+          - Add humorous commentary about facial expressions, poses, or situations
+          - Use emojis to enhance the humor
+          - Make funny comparisons or references
+          - Keep it light-hearted and positive
+          - Always end with a funny observation or joke`
+        },
+        {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Analyze this image and describe what you see. Focus on the person's facial expression, body language, and any notable details. Provide a brief but insightful analysis."
+              text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! 😄"
             },
             {
               type: "image_url",
@@ -515,20 +539,20 @@ const handleMotionStopped = async () => {
     });
     
     const analysis = response.choices[0].message.content;
-    console.log('AI Analysis:', analysis);
+    console.log('🎪 My hilarious analysis:', analysis);
     
     // You could display this analysis in a toast or overlay
     toast({
-      title: "AI Analysis",
-      description: analysis || "Analysis completed",
+      title: "🎭 My Hilarious Analysis!",
+      description: analysis || "I've got some funny observations to share! 😄",
     });
     
   } catch (error) {
     console.error('Error analyzing image:', error);
     toast({
       variant: "destructive",
-      title: "Analysis Error",
-      description: "Could not analyze the image. Please try again.",
+      title: "My eyes got a bit blurry! 👀💫",
+      description: "I couldn't quite see what you're up to there! Maybe try again - I promise I'll be more observant this time! 😄",
     });
   } finally {
     setIsAnalyzing(false);
@@ -645,7 +669,8 @@ return (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20">
           <div className="text-white text-xl text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-            Starting Avatar...
+            <div className="animate-pulse">🎭 Getting my funny face ready...</div>
+            <div className="text-sm mt-2 opacity-75">Preparing jokes and witty comebacks! 😄</div>
           </div>
         </div>
       )}
