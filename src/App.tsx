@@ -581,23 +581,23 @@ const handleCameraClick = async () => {
       description: "I'm no longer watching. Click the camera button to start again! 👋",
     });
   } else {
-    // Start camera with front-facing preference
+    // Start camera with rear-facing preference
     try {
-      // Try to get front-facing camera first
+      // Try to get rear-facing camera first
       let stream: MediaStream;
       
       try {
-        // Request front-facing camera
+        // Request rear-facing/primary camera
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             width: { ideal: 320 },
             height: { ideal: 240 },
-            facingMode: { ideal: 'user' } // Front-facing camera
+            facingMode: { ideal: 'environment' } // Rear-facing camera
           },
           audio: false
         });
-      } catch (frontError) {
-        console.log('Front camera not available, trying any camera...');
+      } catch (rearError) {
+        console.log('Rear camera not available, trying any camera...');
         // Fallback to any available camera
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
