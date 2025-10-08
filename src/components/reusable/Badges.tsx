@@ -1,10 +1,9 @@
 
 import { Button } from "@/components/ui/button"
 import React, { useRef } from "react"
-import { Paperclip } from "lucide-react"
-import { CameraSelector } from "./CameraSelector"
+import { Paperclip, Camera } from "lucide-react"
 
-const badges: string[] = [
+const defaultBadges: string[] = [
     "🤔 Mind-Bending Mysteries",
     "💰 Money Magic & Mayhem", 
     "💕 Love & Laughter Therapy",
@@ -15,21 +14,11 @@ interface BadgeProps {
     setSelectedPrompt: (badge: string) => void;
     onFileUpload?: (file: File) => void;
     onCameraClick?: () => void;
-    onCameraSelect?: (deviceId: string) => void;
     isCameraActive?: boolean;
-    isCameraSelectorOpen?: boolean;
-    onCameraSelectorToggle?: () => void;
+    dynamicButtons?: string[];
 }
 
-export const Badges: React.FC<BadgeProps> = ({ 
-    setSelectedPrompt, 
-    onFileUpload, 
-    onCameraClick, 
-    onCameraSelect,
-    isCameraActive,
-    isCameraSelectorOpen,
-    onCameraSelectorToggle
-}) => {
+export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, onCameraClick, isCameraActive, dynamicButtons }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -64,21 +53,25 @@ export const Badges: React.FC<BadgeProps> = ({
                 >
                     <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
-                <CameraSelector
-                    onCameraSelect={onCameraSelect || (() => {})}
-                    onCameraClick={onCameraClick}
-                    isOpen={isCameraSelectorOpen || false}
-                    onToggle={onCameraSelectorToggle || (() => {})}
-                    disabled={false}
-                    isCameraActive={isCameraActive}
-                />
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
+                        isCameraActive 
+                            ? 'bg-red-500/20 border-red-500/50 text-red-400 hover:bg-red-500/30' 
+                            : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                    }`}
+                    onClick={onCameraClick}
+                >
+                    <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
+                </Button>
             </div>
             
             {/* Main buttons - responsive layout */}
             <div className="w-full max-w-4xl">
                 {/* Mobile: 2x2 grid, Desktop: 3+1 layout */}
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 w-full">
-                    {badges.map((badge, index) => (
+                    {(dynamicButtons && dynamicButtons.length > 0 ? dynamicButtons : defaultBadges).map((badge, index) => (
                         <Button
                             key={index}
                             variant="outline"

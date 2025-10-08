@@ -9,7 +9,6 @@ import { Badges } from './components/reusable/Badges';
 import BrandHeader from './components/reusable/BrandHeader';
 import MicButton from './components/reusable/MicButton';
 import { CameraVideo } from './components/reusable/CameraVideo';
-import { getCameraStream, getCameraError } from './utils/cameraUtils';
 import { Toaster } from "@/components/ui/toaster"
 
 
@@ -21,6 +20,8 @@ function App() {
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [input, setInput] = useState<string>('');
+  const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([]);
+  const [dynamicButtons, setDynamicButtons] = useState<string[]>([]);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream>();
@@ -36,12 +37,50 @@ function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
-  const [isCameraSelectorOpen, setIsCameraSelectorOpen] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   let timeout: any;
 
+  // Function to generate dynamic buttons based on conversation context
+  const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: `Based on the conversation context, suggest 4 relevant, witty button prompts that would be interesting to explore next. 
+            Each button should be:
+            - 1-4 words maximum
+            - Witty and intellectually stimulating
+            - Relevant to the current conversation topic
+            - Use clever wordplay or unexpected connections
+            - Include an appropriate emoji
+            - Be thought-provoking rather than obvious
+            
+            Return only the 4 button texts, one per line, no additional formatting.`
+          },
+          {
+            role: 'user',
+            content: `Conversation context: ${conversation.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`
+          }
+        ]
+      });
+      
+      const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
+      setDynamicButtons(buttons);
+    } catch (error) {
+      console.error('Error generating dynamic buttons:', error);
+      // Fallback to default buttons
+      setDynamicButtons([
+        "🤔 Mind-Bending Mysteries",
+        "💰 Money Magic & Mayhem", 
+        "💕 Love & Laughter Therapy",
+        "🎭 Life's Comedy Coach"
+      ]);
+    }
+  };
 
   const apiKey: any = import.meta.env.VITE_OPENAI_API_KEY;
   const openai = new OpenAI({
@@ -287,31 +326,45 @@ function App() {
       });
 
       const transcription = response.text;
+      
+      // Update conversation history
+      const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
+      setConversationHistory(updatedHistory);
+      
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { 
             role: 'system', 
-            content: `You are a hilarious, witty AI assistant with a great sense of humor! Your responses should be:
-            - Funny and entertaining, making people laugh
-            - Use puns, jokes, and witty observations
-            - Be enthusiastic and exciting in your delivery
-            - Add humor to every response while still being helpful
-            - Use emojis occasionally to enhance the humor
-            - Make references to funny situations or scenarios
+            content: `You are a clever, witty AI assistant with a sharp mind and surprising insights! Your responses should be:
+            - Intellectually stimulating and thought-provoking
+            - Use clever wordplay, unexpected connections, and surprising observations
+            - Be engaging and conversational while maintaining sophistication
+            - Offer unique perspectives that catch people off-guard in delightful ways
+            - Use subtle wit and clever turns of phrase rather than obvious jokes
+            - Make unexpected but insightful connections between ideas
             - Keep responses conversational and engaging
-            - Always end on a positive, funny note`
+            - Always end with a clever or surprising insight that makes people think`
           },
           { role: 'user', content: transcription }
         ]
       });
-      setInput(aiResponse.choices[0].message.content || '');
+      
+      const aiMessage = aiResponse.choices[0].message.content || '';
+      setInput(aiMessage);
+      
+      // Update conversation history with AI response
+      const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
+      setConversationHistory(finalHistory);
+      
+      // Generate dynamic buttons based on updated conversation
+      await generateDynamicButtons(finalHistory);
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
       toast({
         variant: "destructive",
-        title: "Oops! My circuits got a bit tangled! 🤖⚡",
-        description: `Looks like I had a little hiccup: ${error.message}. Don't worry, I'm still here and ready to chat! 😄`,
+        title: "Well, that was unexpected! 🤔",
+        description: `Sometimes the most interesting discoveries come from the most unexpected errors: ${error.message}. Let's try that again with a fresh perspective!`,
       })
     }
   }
@@ -378,6 +431,11 @@ function App() {
     return () => {
       // Cleanup timeout
       clearTimeout(timeout);
+      
+      // Cleanup camera analysis interval
+      if (analysisIntervalRef.current) {
+        clearInterval(analysisIntervalRef.current);
+      }
     }
 
   }, []);
@@ -421,6 +479,14 @@ async function grab() {
     setStartAvatarLoading(false);
     setIsSessionStarted(true);
     
+    // Initialize with default buttons
+    setDynamicButtons([
+      "🤔 Mind-Bending Mysteries",
+      "💰 Money Magic & Mayhem", 
+      "💕 Love & Laughter Therapy",
+      "🎭 Life's Comedy Coach"
+    ]);
+    
     // Automatically start voice chat when avatar session starts
     startContinuousListening();
 
@@ -461,46 +527,68 @@ const handleCameraClick = async () => {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
     }
+    
+    // Clear analysis interval
+    if (analysisIntervalRef.current) {
+      clearInterval(analysisIntervalRef.current);
+      analysisIntervalRef.current = null;
+    }
+    
     setIsCameraActive(false);
-    setIsCameraSelectorOpen(false);
+    setIsAnalyzing(false);
+    
+    toast({
+      title: "📸 Camera Deactivated",
+      description: "I'm no longer watching. Click the camera button to start again! 👋",
+    });
   } else {
-    // Start camera with selected device or default
+    // Start camera with front-facing preference
     try {
-      const stream = await getCameraStream(selectedCameraId || undefined);
+      // Try to get front-facing camera first
+      let stream: MediaStream;
+      
+      try {
+        // Request front-facing camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            width: { ideal: 320 },
+            height: { ideal: 240 },
+            facingMode: { ideal: 'user' } // Front-facing camera
+          },
+          audio: false
+        });
+      } catch (frontError) {
+        console.log('Front camera not available, trying any camera...');
+        // Fallback to any available camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            width: { ideal: 320 },
+            height: { ideal: 240 }
+          },
+          audio: false
+        });
+      }
+      
       setCameraStream(stream);
       setIsCameraActive(true);
-      setIsCameraSelectorOpen(false);
+      
+      // Start periodic analysis every 5 seconds
+      analysisIntervalRef.current = setInterval(() => {
+        if (cameraVideoRef.current && !isAnalyzing) {
+          handleMotionStopped(); // Trigger analysis
+        }
+      }, 5000);
+      
+      toast({
+        title: "📸 Camera Activated!",
+        description: "I'm now watching and ready to analyze what you're up to! 😄",
+      });
     } catch (error) {
       console.error('Error accessing camera:', error);
-      const errorMessage = getCameraError(error);
       toast({
         variant: "destructive",
         title: "Camera Error",
-        description: errorMessage,
-      });
-    }
-  }
-};
-
-const handleCameraSelect = async (deviceId: string) => {
-  setSelectedCameraId(deviceId);
-  
-  // If camera is already active, restart with new device
-  if (isCameraActive) {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-    }
-    
-    try {
-      const stream = await getCameraStream(deviceId);
-      setCameraStream(stream);
-    } catch (error) {
-      console.error('Error switching camera:', error);
-      const errorMessage = getCameraError(error);
-      toast({
-        variant: "destructive",
-        title: "Camera Switch Error",
-        description: errorMessage,
+        description: "Could not access camera. Please check permissions and try again.",
       });
     }
   }
@@ -518,37 +606,10 @@ const handleMotionStopped = async () => {
   setIsAnalyzing(true);
   
   try {
-    // Check if camera video is ready
-    if (!cameraVideoRef.current) {
-      console.error('❌ Camera video ref not available');
-      toast({
-        variant: "destructive",
-        title: "Camera Error",
-        description: "Camera video is not available. Please try again.",
-      });
-      return;
-    }
-    
-    if (cameraVideoRef.current.readyState < 2) {
-      console.error('❌ Video not ready, readyState:', cameraVideoRef.current.readyState);
-      toast({
-        variant: "destructive",
-        title: "Camera Not Ready",
-        description: "Camera video is not ready yet. Please wait a moment and try again.",
-      });
-      return;
-    }
-    
-    console.log('📸 Capturing frame from camera...');
-    console.log('Video dimensions:', cameraVideoRef.current.videoWidth, 'x', cameraVideoRef.current.videoHeight);
-    
     // Capture current frame for analysis
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.error('❌ Could not get canvas context');
-      return;
-    }
+    if (!cameraVideoRef.current || !ctx) return;
     
     canvas.width = cameraVideoRef.current.videoWidth;
     canvas.height = cameraVideoRef.current.videoHeight;
@@ -556,11 +617,10 @@ const handleMotionStopped = async () => {
     
     // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
-    console.log('📷 Frame captured, sending to OpenAI Vision API...');
     
     // Analyze with OpenAI Vision
     const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4o", // Updated to use gpt-4o model
       messages: [
         {
           role: "system",
@@ -572,7 +632,8 @@ const handleMotionStopped = async () => {
           - Use emojis to enhance the humor
           - Make funny comparisons or references
           - Keep it light-hearted and positive
-          - Always end with a funny observation or joke`
+          - Always end with a funny observation or joke
+          - Keep responses concise (under 200 characters) for real-time display`
         },
         {
           role: "user",
@@ -590,15 +651,15 @@ const handleMotionStopped = async () => {
           ]
         }
       ],
-      max_tokens: 300
+      max_tokens: 200
     });
     
     const analysis = response.choices[0].message.content;
     console.log('🎪 My hilarious analysis:', analysis);
     
-    // You could display this analysis in a toast or overlay
+    // Display analysis in a toast
     toast({
-      title: "🎭 My Hilarious Analysis!",
+      title: "🎭 Real-time Analysis!",
       description: analysis || "I've got some funny observations to share! 😄",
     });
     
@@ -716,17 +777,6 @@ return (
               </div>
             </div>
           )}
-          
-          {/* Manual Analysis Button */}
-          <div className="absolute bottom-2 right-2">
-            <button
-              onClick={handleMotionStopped}
-              disabled={isAnalyzing}
-              className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded text-xs disabled:opacity-50"
-            >
-              {isAnalyzing ? 'Analyzing...' : 'Analyze Now'}
-            </button>
-          </div>
         </div>
       )}
 
@@ -749,10 +799,8 @@ return (
               setSelectedPrompt={setSelectedPrompt}
               onFileUpload={handleFileUpload}
               onCameraClick={handleCameraClick}
-              onCameraSelect={handleCameraSelect}
               isCameraActive={isCameraActive}
-              isCameraSelectorOpen={isCameraSelectorOpen}
-              onCameraSelectorToggle={() => setIsCameraSelectorOpen(!isCameraSelectorOpen)}
+              dynamicButtons={dynamicButtons}
             />
             <MicButton
               isSpeaking={isSpeaking}
