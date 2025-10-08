@@ -61,7 +61,7 @@ function App() {
     }
   };
 
-
+  
   // Function to update volume level
   const updateVolume = (newVolume: number) => {
     setVolumeLevel(newVolume);
@@ -858,14 +858,16 @@ return (
       {/* Brand Header */}
       <BrandHeader />
 
-      {/* Fullscreen Avatar Video */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black">
-        <Video ref={mediaStream} />
-      </div>
+      {/* Fullscreen Avatar Video - only show when camera is not active */}
+      {!isCameraActive && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black transition-all duration-500 ease-in-out">
+          <Video ref={mediaStream} />
+        </div>
+      )}
 
-      {/* Camera Video - Right Corner */}
+      {/* Camera Video - Full Screen when active */}
       {isCameraActive && cameraStream && (
-        <div className="absolute top-20 right-4 w-32 h-24 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+        <div className="absolute inset-0 bg-black z-20 animate-in fade-in duration-500 ease-in-out">
           <CameraVideo
             ref={cameraVideoRef}
             stream={cameraStream}
@@ -875,7 +877,7 @@ return (
           {/* Close button */}
           <button
             onClick={handleCameraClick}
-            className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold transition-colors z-30"
+            className="absolute top-4 right-4 w-8 h-8 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-lg font-bold transition-all duration-500 ease-in-out z-30 animate-in fade-in slide-in-from-top-2"
             title="Exit Vision Mode"
           >
             ×
@@ -888,6 +890,13 @@ return (
               </div>
             </div>
           )} */}
+        </div>
+      )}
+
+      {/* Avatar Video - Left Corner when camera is active */}
+      {isCameraActive && stream && (
+        <div className="absolute top-4 left-4 w-32 h-24 z-30 bg-black rounded-lg overflow-hidden shadow-lg transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-left-4">
+          <Video ref={mediaStream} />
         </div>
       )}
 
@@ -922,18 +931,6 @@ return (
                 }}
               />
               <span className="text-white text-sm font-mono">{volumeLevel.toFixed(1)}x</span>
-              <button
-                onClick={() => {
-                  console.log('Current video element:', mediaStream.current);
-                  console.log('Current volume level:', volumeLevel);
-                  console.log('Video volume:', mediaStream.current?.volume);
-                  console.log('Audio context state:', audioContextRef.current?.state);
-                  console.log('Gain node value:', gainNodeRef.current?.gain.value);
-                }}
-                className="text-white text-xs bg-blue-600 px-2 py-1 rounded"
-              >
-                Debug
-              </button>
             </div>
             <Badges
               setSelectedPrompt={setSelectedPrompt}
