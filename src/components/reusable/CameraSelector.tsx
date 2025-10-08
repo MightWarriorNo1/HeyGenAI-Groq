@@ -109,7 +109,7 @@ export const CameraSelector: React.FC<CameraSelectorProps> = ({
             </div>
           ) : (
             <div className="space-y-1 max-h-32 overflow-y-auto">
-              {devices.map((device, index) => (
+              {devices.map((device) => (
                 <Button
                   key={device.deviceId}
                   variant="ghost"
