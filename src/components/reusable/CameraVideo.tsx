@@ -101,13 +101,18 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
     };
 
     return (
-      <div className="relative">
+      <div className="relative w-full h-full">
         <video
           ref={ref}
           autoPlay
           muted
           playsInline
-          className="w-full h-full object-cover rounded-lg"
+          className="w-full h-full object-cover"
+          style={{ 
+            backgroundColor: '#000',
+            minHeight: '100vh',
+            minWidth: '100vw'
+          }}
         />
         <canvas
           ref={canvasRef}

@@ -861,8 +861,6 @@ useEffect(() => {
     const handleSmallAvatarLoadedMetadata = () => {
       console.log('Small avatar video metadata loaded');
       if (smallAvatarRef.current) {
-        smallAvatarRef.current.volume = 0; // Mute the small avatar
-        smallAvatarRef.current.muted = true;
         
         smallAvatarRef.current.play().catch(error => {
           console.error('Small avatar autoplay failed:', error);
@@ -897,12 +895,14 @@ return (
       {/* Fullscreen Video - Avatar or Camera */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
         {isCameraActive && cameraStream ? (
-          <CameraVideo
-            ref={cameraVideoRef}
-            stream={cameraStream}
-            onMotionDetected={handleMotionDetected}
-            onMotionStopped={handleMotionStopped}
-          />
+          <div className="w-full h-full">
+            <CameraVideo
+              ref={cameraVideoRef}
+              stream={cameraStream}
+              onMotionDetected={handleMotionDetected}
+              onMotionStopped={handleMotionStopped}
+            />
+          </div>
         ) : (
           <Video ref={mediaStream} />
         )}
