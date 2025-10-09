@@ -38,7 +38,6 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
-  const [isAvatarInterrupted, setIsAvatarInterrupted] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   
   // Pre-warm avatar for faster response
@@ -101,35 +100,6 @@ function App() {
         console.log('🔥 Avatar pre-warmed for faster responses');
       } catch (error) {
         console.log('Pre-warm failed, will use normal flow:', error);
-      }
-    }
-  };
-
-  // Function to interrupt avatar speaking for natural conversation
-  const interruptAvatarSpeaking = async () => {
-    if (avatar.current && isAvatarSpeaking) {
-      try {
-        console.log('🛑 User is speaking - interrupting avatar for natural conversation!');
-        setIsAvatarInterrupted(true);
-        
-        // Clear the analysis queue to prevent old responses from playing
-        analysisQueueRef.current = [];
-        isProcessingQueueRef.current = false;
-        setIsAvatarSpeaking(false);
-        
-        // Show interruption feedback briefly
-        setTimeout(() => {
-          setIsAvatarInterrupted(false);
-        }, 2000);
-        
-        console.log('✅ Avatar interrupted - listening to user now');
-      } catch (error) {
-        console.error('Error interrupting avatar:', error);
-        // Force reset states even if API call fails
-        setIsAvatarSpeaking(false);
-        isProcessingQueueRef.current = false;
-        analysisQueueRef.current = [];
-        setIsAvatarInterrupted(false);
       }
     }
   };
@@ -252,13 +222,6 @@ function App() {
           if (avgVolume > voiceThreshold && !isRecording) {
             // Voice detected, start recording
             console.log('🎤 Someone is trying to talk to me! Let me listen...');
-            
-            // Interrupt avatar if it's currently speaking for natural conversation
-            if (isAvatarSpeaking) {
-              console.log('🛑 User is speaking - interrupting avatar for natural conversation!');
-              interruptAvatarSpeaking();
-            }
-            
             isRecording = true;
             silenceStart = null;
             mediaRecorder.current = new MediaRecorder(stream);
@@ -315,11 +278,6 @@ function App() {
 
   //Function when user starts speaking (kept for mic button compatibility)
   const handleStartSpeaking = () => {
-    // Interrupt avatar if it's currently speaking for natural conversation
-    if (isAvatarSpeaking) {
-      console.log('🛑 Mic button clicked - interrupting avatar for natural conversation!');
-      interruptAvatarSpeaking();
-    }
     startContinuousListening();
   };
 
@@ -1080,15 +1038,6 @@ return (
               avatarStartLoading={startAvatarLoading}
               avatarStopLoading={stopAvatarLoading}
             />
-            
-            {/* Avatar interruption indicator */}
-            {isAvatarInterrupted && (
-              <div className="flex items-center justify-center p-3 bg-yellow-100 border border-yellow-300 rounded-lg mx-4 mb-2 animate-pulse">
-                <span className="text-yellow-800 text-sm font-medium flex items-center gap-2">
-                  🛑 Avatar interrupted - listening to you now!
-                </span>
-              </div>
-            )}
           </div>
         </div>
       )}
