@@ -35,7 +35,6 @@ function App() {
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<number>(0);
-  const [loadingStep, setLoadingStep] = useState<string>('');
   
   // Camera states
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -559,18 +558,15 @@ async function grab() {
   setStartLoading(true);
   setStartAvatarLoading(true);
   setLoadingProgress(0);
-  setLoadingStep('Initializing...');
   
   try {
     // Step 1: Get access token (20% progress)
-    setLoadingStep('Getting access token...');
     const tokenResponse = await getAccessToken();
     setLoadingProgress(20);
     
     const token = tokenResponse.data.data.token;
 
     // Step 2: Initialize avatar API (40% progress)
-    setLoadingStep('Setting up avatar connection...');
     if (!avatar.current) {
       avatar.current = new StreamingAvatarApi(
         new Configuration({ accessToken: token })
@@ -579,7 +575,6 @@ async function grab() {
     setLoadingProgress(40);
 
     // Step 3: Create avatar session (70% progress)
-    setLoadingStep('Creating avatar session...');
     const res = await avatar.current!.createStartAvatar(
       {
         newSessionRequest: {
@@ -594,7 +589,6 @@ async function grab() {
     setLoadingProgress(70);
     
     // Step 4: Set up video stream (90% progress)
-    setLoadingStep('Setting up video stream...');
     setData(res);
     setStream(avatar.current!.mediaStream);
     setIsSessionStarted(true);
@@ -608,7 +602,6 @@ async function grab() {
     ]);
     
     setLoadingProgress(100);
-    setLoadingStep('Ready!');
     
     // Clear loading states
     setStartLoading(false);
@@ -627,7 +620,6 @@ async function grab() {
     setStartAvatarLoading(false);
     setStartLoading(false);
     setLoadingProgress(0);
-    setLoadingStep('');
     toast({
       variant: "destructive",
       title: "Uh oh! Something went wrong.",
