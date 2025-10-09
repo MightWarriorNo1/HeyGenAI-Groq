@@ -1,15 +1,17 @@
 /*eslint-disable*/
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
-import { Badges } from './components/reusable/Badges';
-import BrandHeader from './components/reusable/BrandHeader';
-import MicButton from './components/reusable/MicButton';
-import { CameraVideo } from './components/reusable/CameraVideo';
 import { Toaster } from "@/components/ui/toaster"
+
+// Lazy load heavy components for faster initial load
+const Badges = lazy(() => import('./components/reusable/Badges').then(module => ({ default: module.Badges })));
+const BrandHeader = lazy(() => import('./components/reusable/BrandHeader'));
+const MicButton = lazy(() => import('./components/reusable/MicButton'));
+const CameraVideo = lazy(() => import('./components/reusable/CameraVideo').then(module => ({ default: module.CameraVideo })));
 
 
 function App() {
@@ -32,6 +34,8 @@ function App() {
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
+  const [loadingStep, setLoadingStep] = useState<string>('');
   
   // Camera states
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -550,49 +554,52 @@ function App() {
 
 
 
-// Function to initiate the avatar
+// Function to initiate the avatar with optimized loading and progress tracking
 async function grab() {
   setStartLoading(true);
   setStartAvatarLoading(true);
+  setLoadingProgress(0);
+  setLoadingStep('Initializing...');
+  
   try {
-    const response = await getAccessToken();
-    const token = response.data.data.token;
+    // Step 1: Get access token (20% progress)
+    setLoadingStep('Getting access token...');
+    const tokenResponse = await getAccessToken();
+    setLoadingProgress(20);
+    
+    const token = tokenResponse.data.data.token;
 
-
+    // Step 2: Initialize avatar API (40% progress)
+    setLoadingStep('Setting up avatar connection...');
     if (!avatar.current) {
       avatar.current = new StreamingAvatarApi(
         new Configuration({ accessToken: token })
       );
     }
-    // avatar.current.addEventHandler("avatar_stop_talking", (e: any) => {
-    //   console.log("Avatar stopped talking", e);
-    //   setTimeout(() => {
-    //     handleStartSpeaking();
-    //   }, 2000);
-    // });
+    setLoadingProgress(40);
 
+    // Step 3: Create avatar session (70% progress)
+    setLoadingStep('Creating avatar session...');
     const res = await avatar.current!.createStartAvatar(
       {
         newSessionRequest: {
-          quality: "low",
+          quality: "medium", // Better quality but still optimized
           avatarName: import.meta.env.VITE_HEYGEN_AVATARID,
           voice: { voiceId: import.meta.env.VITE_HEYGEN_VOICEID }
         }
       },
     );
-    console.log(res);
+    
+    console.log('Avatar session created:', res);
+    setLoadingProgress(70);
+    
+    // Step 4: Set up video stream (90% progress)
+    setLoadingStep('Setting up video stream...');
     setData(res);
     setStream(avatar.current!.mediaStream);
-    setStartLoading(false);
-    setStartAvatarLoading(false);
     setIsSessionStarted(true);
     
-    // Pre-warm avatar for faster responses
-    setTimeout(() => {
-      preWarmAvatarForResponse();
-    }, 1000);
-    
-    // Initialize with default buttons
+    // Initialize UI components immediately
     setDynamicButtons([
       "🤔 Mind-Bending Mysteries",
       "💰 Money Magic & Mayhem", 
@@ -600,17 +607,31 @@ async function grab() {
       "🎭 Life's Comedy Coach"
     ]);
     
-    // Automatically start voice chat when avatar session starts
-    startContinuousListening();
+    setLoadingProgress(100);
+    setLoadingStep('Ready!');
+    
+    // Clear loading states
+    setStartLoading(false);
+    setStartAvatarLoading(false);
+    
+    // Start voice chat and pre-warm in parallel (non-blocking)
+    Promise.all([
+      startContinuousListening(),
+      preWarmAvatarForResponse()
+    ]).catch(error => {
+      console.warn('Background initialization failed:', error);
+    });
 
   } catch (error: any) {
-    console.log(error.message);
+    console.error('Avatar initialization failed:', error.message);
     setStartAvatarLoading(false);
     setStartLoading(false);
+    setLoadingProgress(0);
+    setLoadingStep('');
     toast({
       variant: "destructive",
       title: "Uh oh! Something went wrong.",
-      description: error.response.data.message || error.message,
+      description: error.response?.data?.message || error.message,
     })
   }
 };
@@ -943,22 +964,35 @@ useEffect(() => {
   }
 }, [isCameraActive, stream]);
 
+// Show landing page if session hasn't started
+if (!isSessionStarted && !startLoading && !startAvatarLoading) {
+  return (
+    <>
+      <Toaster />
+    </>
+  );
+}
+
 return (
   <>
     <Toaster />
     <div className="h-screen w-screen relative overflow-hidden">
       {/* Brand Header */}
-      <BrandHeader />
+      <Suspense fallback={<div className="h-16 bg-gray-100 animate-pulse"></div>}>
+        <BrandHeader />
+      </Suspense>
 
       {/* Fullscreen Video - Avatar or Camera */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
         {isCameraActive && cameraStream ? (
-          <CameraVideo
-            ref={cameraVideoRef}
-            stream={cameraStream}
-            onMotionDetected={handleMotionDetected}
-            onMotionStopped={handleMotionStopped}
-          />
+          <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center text-white">Loading camera...</div>}>
+            <CameraVideo
+              ref={cameraVideoRef}
+              stream={cameraStream}
+              onMotionDetected={handleMotionDetected}
+              onMotionStopped={handleMotionStopped}
+            />
+          </Suspense>
         ) : (
           <Video ref={mediaStream} />
         )}
@@ -991,13 +1025,23 @@ return (
         </button>
       )}
 
-      {/* Loading overlay */}
+      {/* Enhanced Loading overlay with progress */}
       {(startLoading || startAvatarLoading) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20">
-          <div className="text-white text-xl text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-            <div className="animate-pulse">🎭 Getting my funny face ready...</div>
-            <div className="text-sm mt-2 opacity-75">Preparing jokes and witty comebacks! 😄</div>
+        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-20">
+          <div className="text-white text-center max-w-md mx-auto p-6">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-6"></div>
+            <div className="text-2xl mb-4">🎭 Getting my funny face ready...</div>
+            
+            
+            <div className="text-sm opacity-75">
+              {loadingProgress < 50 ? "Preparing jokes and witty comebacks! 😄" : 
+               loadingProgress < 80 ? "Setting up the stage for comedy! 🎪" :
+               "Almost ready to entertain! 🎭"}
+            </div>
+            
+            <div className="text-xs mt-2 opacity-50">
+              {loadingProgress}% complete
+            </div>
           </div>
         </div>
       )}
@@ -1023,21 +1067,25 @@ return (
               />
               <span className="text-white text-sm font-mono">{volumeLevel.toFixed(1)}x</span>
             </div>
-            <Badges
-              setSelectedPrompt={setSelectedPrompt}
-              onFileUpload={handleFileUpload}
-              onCameraClick={handleCameraClick}
-              isCameraActive={isCameraActive}
-              dynamicButtons={dynamicButtons}
-            />
-            <MicButton
-              isSpeaking={isSpeaking}
-              onClick={isSpeaking ? handleStopSpeaking : handleStartSpeaking}
-              stopAvatar={stop}
-              grab={grab}
-              avatarStartLoading={startAvatarLoading}
-              avatarStopLoading={stopAvatarLoading}
-            />
+            <Suspense fallback={<div className="h-12 bg-gray-200 animate-pulse rounded-lg mb-4"></div>}>
+              <Badges
+                setSelectedPrompt={setSelectedPrompt}
+                onFileUpload={handleFileUpload}
+                onCameraClick={handleCameraClick}
+                isCameraActive={isCameraActive}
+                dynamicButtons={dynamicButtons}
+              />
+            </Suspense>
+            <Suspense fallback={<div className="h-16 bg-gray-200 animate-pulse rounded-full"></div>}>
+              <MicButton
+                isSpeaking={isSpeaking}
+                onClick={isSpeaking ? handleStopSpeaking : handleStartSpeaking}
+                stopAvatar={stop}
+                grab={grab}
+                avatarStartLoading={startAvatarLoading}
+                avatarStopLoading={stopAvatarLoading}
+              />
+            </Suspense>
           </div>
         </div>
       )}
