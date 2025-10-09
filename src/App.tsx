@@ -895,14 +895,12 @@ return (
       {/* Fullscreen Video - Avatar or Camera */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
         {isCameraActive && cameraStream ? (
-          <div className="w-full h-full">
-            <CameraVideo
-              ref={cameraVideoRef}
-              stream={cameraStream}
-              onMotionDetected={handleMotionDetected}
-              onMotionStopped={handleMotionStopped}
-            />
-          </div>
+          <CameraVideo
+            ref={cameraVideoRef}
+            stream={cameraStream}
+            onMotionDetected={handleMotionDetected}
+            onMotionStopped={handleMotionStopped}
+          />
         ) : (
           <Video ref={mediaStream} />
         )}
