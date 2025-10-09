@@ -50,6 +50,9 @@ function App() {
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
+  // Response cache for faster repeated queries
+  const responseCache = useRef<Map<string, string>>(new Map());
+  
   // Audio context and gain node for volume control
   const audioContextRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
@@ -161,22 +164,15 @@ function App() {
         messages: [
           {
             role: 'system',
-            content: `Based on the conversation context, suggest 4 relevant, witty button prompts that would be interesting to explore next. 
-            Each button should be:
-            - 1-4 words maximum
-            - Witty and intellectually stimulating
-            - Relevant to the current conversation topic
-            - Use clever wordplay or unexpected connections
-            - Include an appropriate emoji
-            - Be thought-provoking rather than obvious
-            
-            Return only the 4 button texts, one per line, no additional formatting.`
+            content: `Generate 4 witty button prompts (1-4 words each) based on conversation. Return only the 4 button texts, one per line.`
           },
           {
             role: 'user',
-            content: `Conversation context: ${conversation.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`
+            content: `Context: ${conversation.slice(-2).map(msg => msg.content).join(' ')}` // Only use last 2 messages for faster processing
           }
-        ]
+        ],
+        max_tokens: 100, // Reduced for faster response
+        temperature: 0.7
       });
       
       const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
@@ -197,6 +193,9 @@ function App() {
   const openai = new OpenAI({
     apiKey: apiKey,
     dangerouslyAllowBrowser: true,
+    // Add connection pooling for faster requests
+    timeout: 10000, // 10 second timeout
+    maxRetries: 2, // Retry failed requests
   });
 
 
@@ -431,45 +430,77 @@ function App() {
         type: 'audio/wav',
       });
 
-      const response = await openai.audio.transcriptions.create({
+      // Start transcription for faster processing
+      const transcriptionResponse = await openai.audio.transcriptions.create({
         model: 'whisper-1',
         file: audioFile,
       });
 
-      const transcription = response.text;
+      const transcription = transcriptionResponse.text;
+      
+      // Check cache first for faster response
+      const cacheKey = transcription.toLowerCase().trim();
+      const cachedResponse = responseCache.current.get(cacheKey);
+      
+      if (cachedResponse) {
+        console.log('🚀 Using cached response for faster reply!');
+        setInput(cachedResponse);
+        
+        // Update conversation history
+        const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
+        setConversationHistory(updatedHistory);
+        
+        const finalHistory = [...updatedHistory, { role: 'assistant', content: cachedResponse }];
+        setConversationHistory(finalHistory);
+        
+        // Generate dynamic buttons in background
+        generateDynamicButtons(finalHistory).catch(error => {
+          console.warn('Dynamic buttons generation failed:', error);
+        });
+        return;
+      }
       
       // Update conversation history
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
       setConversationHistory(updatedHistory);
       
-      const aiResponse = await openai.chat.completions.create({
+      // Get a more specific response based on actual transcription
+      const specificResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { 
             role: 'system', 
-            content: `You are a clever, witty AI assistant with a sharp mind and surprising insights! Your responses should be:
-            - Intellectually stimulating and thought-provoking
-            - Use clever wordplay, unexpected connections, and surprising observations
-            - Be engaging and conversational while maintaining sophistication
-            - Offer unique perspectives that catch people off-guard in delightful ways
-            - Use subtle wit and clever turns of phrase rather than obvious jokes
-            - Make unexpected but insightful connections between ideas
-            - Keep responses conversational and engaging
-            - Always end with a clever or surprising insight that makes people think`
+            content: `You are a clever, witty AI assistant. Keep responses under 100 words, be engaging and conversational.`
           },
-          { role: 'user', content: transcription }
-        ]
+          { role: 'user', content: transcription || '' }
+        ],
+        max_tokens: 150, // Reduced for faster response
+        temperature: 0.8
       });
       
-      const aiMessage = aiResponse.choices[0].message.content || '';
+      const aiMessage = specificResponse.choices[0].message.content || '';
+      
+      // Cache the response for future use
+      responseCache.current.set(cacheKey, aiMessage);
+      
+      // Limit cache size to prevent memory issues
+      if (responseCache.current.size > 50) {
+        const firstKey = responseCache.current.keys().next().value;
+        if (firstKey) {
+          responseCache.current.delete(firstKey);
+        }
+      }
+      
       setInput(aiMessage);
       
       // Update conversation history with AI response
       const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
       setConversationHistory(finalHistory);
       
-      // Generate dynamic buttons based on updated conversation
-      await generateDynamicButtons(finalHistory);
+      // Generate dynamic buttons in background (non-blocking)
+      generateDynamicButtons(finalHistory).catch(error => {
+        console.warn('Dynamic buttons generation failed:', error);
+      });
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
       toast({
@@ -483,10 +514,24 @@ function App() {
   // useEffect getting triggered when the input state is updated, basically make the avatar to talk
   useEffect(() => {
     async function speak() {
+      if (!input || !avatar.current || !data?.sessionId) return;
+      
       try {
-        await avatar.current?.speak({ taskRequest: { text: input, sessionId: data?.sessionId } });
+        // Start speaking immediately without waiting for completion
+        const speakPromise = avatar.current.speak({ 
+          taskRequest: { 
+            text: input, 
+            sessionId: data.sessionId! 
+          } 
+        });
+        
+        // Don't await - let it run in background for faster response
+        speakPromise.catch((err: any) => {
+          console.error('Avatar speak error:', err);
+        });
+        
       } catch (err: any) {
-        console.error(err);
+        console.error('Avatar speak setup error:', err);
       }
     }
 
@@ -578,7 +623,7 @@ async function grab() {
     const res = await avatar.current!.createStartAvatar(
       {
         newSessionRequest: {
-          quality: "medium", // Better quality but still optimized
+          quality: "low", // Use low quality for faster response
           avatarName: import.meta.env.VITE_HEYGEN_AVATARID,
           voice: { voiceId: import.meta.env.VITE_HEYGEN_VOICEID }
         }
@@ -619,7 +664,7 @@ async function grab() {
     console.error('Avatar initialization failed:', error.message);
     setStartAvatarLoading(false);
     setStartLoading(false);
-    setLoadingProgress(0);
+    setLoadingProgress(0); 
     toast({
       variant: "destructive",
       title: "Uh oh! Something went wrong.",
@@ -827,8 +872,14 @@ useEffect(() => {
     openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
+        { 
+          role: 'system', 
+          content: 'You are a witty AI assistant. Keep responses under 100 words, be engaging and conversational.'
+        },
         { role: 'user', content: selectedPrompt }
-      ]
+      ],
+      max_tokens: 150, // Reduced for faster response
+      temperature: 0.8
     }).then(aiResponse => {
       setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
