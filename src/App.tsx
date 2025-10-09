@@ -914,7 +914,6 @@ return (
             playsInline 
             autoPlay 
             loop
-            muted
             className="w-full h-full object-cover rounded-lg" 
             style={{ 
               backgroundColor: '#000'
