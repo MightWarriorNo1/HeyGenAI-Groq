@@ -33,9 +33,6 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Capture the current timeout ref value
-      const currentTimeoutRef = motionTimeoutRef.current;
-
       const detectMotion = () => {
         if (!video.current || !canvas || !ctx) return;
 
@@ -77,8 +74,8 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
 
       return () => {
         clearInterval(interval);
-        if (currentTimeoutRef) {
-          clearTimeout(currentTimeoutRef);
+        if (motionTimeoutRef.current) {
+          clearTimeout(motionTimeoutRef.current);
         }
       };
     }, [stream, onMotionDetected, onMotionStopped, ref]);
@@ -110,7 +107,7 @@ const CameraVideo = forwardRef<HTMLVideoElement, CameraVideoProps>(
           autoPlay
           muted
           playsInline
-          className="w-full h-full object-cover transition-all duration-500 ease-in-out"
+          className="w-full h-full object-cover rounded-lg"
         />
         <canvas
           ref={canvasRef}

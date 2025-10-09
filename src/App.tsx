@@ -39,6 +39,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const smallAvatarRef = useRef<HTMLVideoElement>(null);
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
@@ -794,7 +795,7 @@ useEffect(() => {
         if (!audioElementRef.current) {
           audioElementRef.current = document.createElement('audio');
           audioElementRef.current.style.display = 'none';
-          audioElementRef.current.volume = volumeLevel;
+          audioElementRef.current.volume = Math.min(volumeLevel, 1.0);
           document.body.appendChild(audioElementRef.current);
         }
         
@@ -851,6 +852,41 @@ useEffect(() => {
   }
 }, [stream]);
 
+// Set up small avatar video stream when camera is active
+useEffect(() => {
+  if (isCameraActive && stream && smallAvatarRef.current) {
+    console.log('Setting up small avatar video stream');
+    smallAvatarRef.current.srcObject = stream;
+    
+    const handleSmallAvatarLoadedMetadata = () => {
+      console.log('Small avatar video metadata loaded');
+      if (smallAvatarRef.current) {
+        smallAvatarRef.current.volume = 0; // Mute the small avatar
+        smallAvatarRef.current.muted = true;
+        
+        smallAvatarRef.current.play().catch(error => {
+          console.error('Small avatar autoplay failed:', error);
+        });
+      }
+    };
+
+    const handleSmallAvatarError = (error: any) => {
+      console.error('Small avatar video error:', error);
+    };
+
+    smallAvatarRef.current.addEventListener('loadedmetadata', handleSmallAvatarLoadedMetadata);
+    smallAvatarRef.current.addEventListener('error', handleSmallAvatarError);
+
+    // Cleanup function
+    return () => {
+      if (smallAvatarRef.current) {
+        smallAvatarRef.current.removeEventListener('loadedmetadata', handleSmallAvatarLoadedMetadata);
+        smallAvatarRef.current.removeEventListener('error', handleSmallAvatarError);
+      }
+    };
+  }
+}, [isCameraActive, stream]);
+
 return (
   <>
     <Toaster />
@@ -858,16 +894,31 @@ return (
       {/* Brand Header */}
       <BrandHeader />
 
-      {/* Fullscreen Avatar Video - only show when camera is not active */}
-      {!isCameraActive && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black transition-all duration-500 ease-in-out">
-          <Video ref={mediaStream} />
+      {/* Fullscreen Avatar Video */}
+      <div className="absolute inset-0 flex items-center justify-center bg-black">
+        <Video ref={mediaStream} />
+      </div>
+
+      {/* Small Avatar Video - Top Left Corner (when camera is active) */}
+      {isCameraActive && stream && (
+        <div className="absolute top-20 left-4 w-24 h-32 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
+          <video 
+            ref={smallAvatarRef}
+            playsInline 
+            autoPlay 
+            loop
+            muted
+            className="w-full h-full object-cover rounded-lg" 
+            style={{ 
+              backgroundColor: '#000'
+            }}
+          />
         </div>
       )}
 
-      {/* Camera Video - Full Screen when active */}
+      {/* Camera Video - Right Corner */}
       {isCameraActive && cameraStream && (
-        <div className="absolute inset-0 bg-black z-20 animate-in fade-in duration-500 ease-in-out">
+        <div className="absolute top-20 right-4 w-24 h-32 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
           <CameraVideo
             ref={cameraVideoRef}
             stream={cameraStream}
@@ -877,7 +928,7 @@ return (
           {/* Close button */}
           <button
             onClick={handleCameraClick}
-            className="absolute top-4 right-4 w-8 h-8 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-lg font-bold transition-all duration-500 ease-in-out z-30 animate-in fade-in slide-in-from-top-2"
+            className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold transition-colors z-30"
             title="Exit Vision Mode"
           >
             ×
@@ -890,13 +941,6 @@ return (
               </div>
             </div>
           )} */}
-        </div>
-      )}
-
-      {/* Avatar Video - Left Corner when camera is active */}
-      {isCameraActive && stream && (
-        <div className="absolute top-4 left-4 w-32 h-24 z-30 bg-black rounded-lg overflow-hidden shadow-lg transition-all duration-500 ease-in-out animate-in fade-in slide-in-from-left-4">
-          <Video ref={mediaStream} />
         </div>
       )}
 
