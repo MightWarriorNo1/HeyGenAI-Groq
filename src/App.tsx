@@ -894,9 +894,18 @@ return (
       {/* Brand Header */}
       <BrandHeader />
 
-      {/* Fullscreen Avatar Video */}
+      {/* Fullscreen Video - Avatar or Camera */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
-        <Video ref={mediaStream} />
+        {isCameraActive && cameraStream ? (
+          <CameraVideo
+            ref={cameraVideoRef}
+            stream={cameraStream}
+            onMotionDetected={handleMotionDetected}
+            onMotionStopped={handleMotionStopped}
+          />
+        ) : (
+          <Video ref={mediaStream} />
+        )}
       </div>
 
       {/* Small Avatar Video - Top Left Corner (when camera is active) */}
@@ -916,31 +925,24 @@ return (
         </div>
       )}
 
-      {/* Camera Video - Right Corner */}
+      {/* Close button for camera mode */}
       {isCameraActive && cameraStream && (
-        <div className="absolute top-20 right-4 w-24 h-32 z-20 bg-black rounded-lg overflow-hidden shadow-lg">
-          <CameraVideo
-            ref={cameraVideoRef}
-            stream={cameraStream}
-            onMotionDetected={handleMotionDetected}
-            onMotionStopped={handleMotionStopped}
-          />
-          {/* Close button */}
-          <button
-            onClick={handleCameraClick}
-            className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold transition-colors z-30"
-            title="Exit Vision Mode"
-          >
-            ×
-          </button>
-          {/* {isAnalyzing && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-              <div className="text-white text-center">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mx-auto mb-2"></div>
-                <div className="text-sm">Analyzing...</div>
-              </div>
-            </div>
-          )} */}
+        <button
+          onClick={handleCameraClick}
+          className="absolute top-4 right-4 w-8 h-8 bg-red-500/80 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-lg font-bold transition-colors z-30"
+          title="Exit Vision Mode"
+        >
+          ×
+        </button>
+      )}
+
+      {/* Analyzing overlay for camera mode */}
+      {isCameraActive && isAnalyzing && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-30">
+          <div className="text-white text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+            <div className="text-lg">Analyzing...</div>
+          </div>
         </div>
       )}
 
