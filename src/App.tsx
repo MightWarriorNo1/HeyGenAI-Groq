@@ -50,8 +50,20 @@ function App() {
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
-  // Response cache for faster repeated queries
-  const responseCache = useRef<Map<string, string>>(new Map());
+  // Enhanced response cache for faster repeated queries
+  const responseCache = useRef<Map<string, { response: string, timestamp: number }>>(new Map());
+  const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes cache expiry
+  
+  // Quick response cache for common phrases (instant responses)
+  const quickResponses = new Map([
+    ['hello', "Hey there! Great to see you! What's on your mind today?"],
+    ['hi', "Hi! I'm here and ready to chat! What's up?"],
+    ['how are you', "I'm doing fantastic! Thanks for asking. How about you?"],
+    ['what can you do', "I can chat, analyze images, help with questions, and just be your witty AI companion!"],
+    ['thank you', "You're very welcome! Happy to help anytime!"],
+    ['bye', "See you later! Take care and have an amazing day!"],
+    ['goodbye', "Goodbye! It was great talking with you!"]
+  ]);
   
   // Audio context and gain node for volume control
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -95,15 +107,18 @@ function App() {
   const preWarmAvatarForResponse = async () => {
     if (avatar.current && data?.sessionId && !preWarmAvatar.current) {
       try {
-        // Send a minimal test message to warm up the avatar
-        await avatar.current.speak({ 
+        // Send a minimal test message to warm up the avatar (non-blocking)
+        avatar.current.speak({ 
           taskRequest: { 
             text: "Ready", 
             sessionId: data.sessionId 
           } 
+        }).then(() => {
+          preWarmAvatar.current = true;
+          console.log('🔥 Avatar pre-warmed for faster responses');
+        }).catch((error) => {
+          console.log('Pre-warm failed, will use normal flow:', error);
         });
-        preWarmAvatar.current = true;
-        console.log('🔥 Avatar pre-warmed for faster responses');
       } catch (error) {
         console.log('Pre-warm failed, will use normal flow:', error);
       }
@@ -193,9 +208,9 @@ function App() {
   const openai = new OpenAI({
     apiKey: apiKey,
     dangerouslyAllowBrowser: true,
-    // Add connection pooling for faster requests
-    timeout: 10000, // 10 second timeout
-    maxRetries: 2, // Retry failed requests
+    // Optimized configuration for faster requests
+    timeout: 8000, // Reduced to 8 second timeout for faster failure detection
+    maxRetries: 1, // Reduced retries for faster response
   });
 
 
@@ -214,8 +229,8 @@ function App() {
 
         let isRecording = false;
         let silenceStart: number | null = null;
-        const silenceTimeout = 2000; // 2 seconds of silence
-        const voiceThreshold = 30; // Voice detection threshold
+        const silenceTimeout = 1500; // Reduced to 1.5 seconds of silence for faster response
+        const voiceThreshold = 25; // Lowered voice detection threshold for more sensitive detection
 
         const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
@@ -438,19 +453,17 @@ function App() {
 
       const transcription = transcriptionResponse.text;
       
-      // Check cache first for faster response
-      const cacheKey = transcription.toLowerCase().trim();
-      const cachedResponse = responseCache.current.get(cacheKey);
-      
-      if (cachedResponse) {
-        console.log('🚀 Using cached response for faster reply!');
-        setInput(cachedResponse);
+      // Check for quick responses first (instant)
+      const quickResponse = quickResponses.get(transcription.toLowerCase().trim());
+      if (quickResponse) {
+        console.log('⚡ Using instant quick response!');
+        setInput(quickResponse);
         
         // Update conversation history
         const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
         setConversationHistory(updatedHistory);
         
-        const finalHistory = [...updatedHistory, { role: 'assistant', content: cachedResponse }];
+        const finalHistory = [...updatedHistory, { role: 'assistant', content: quickResponse }];
         setConversationHistory(finalHistory);
         
         // Generate dynamic buttons in background
@@ -460,12 +473,34 @@ function App() {
         return;
       }
       
-      // Update conversation history
+      // Check cache for faster response
+      const cacheKey = transcription.toLowerCase().trim();
+      const cached = responseCache.current.get(cacheKey);
+      
+      if (cached && (Date.now() - cached.timestamp) < CACHE_EXPIRY) {
+        console.log('🚀 Using cached response for faster reply!');
+        setInput(cached.response);
+        
+        // Update conversation history
+        const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
+        setConversationHistory(updatedHistory);
+        
+        const finalHistory = [...updatedHistory, { role: 'assistant', content: cached.response }];
+        setConversationHistory(finalHistory);
+        
+        // Generate dynamic buttons in background
+        generateDynamicButtons(finalHistory).catch(error => {
+          console.warn('Dynamic buttons generation failed:', error);
+        });
+        return;
+      }
+      
+      // Update conversation history immediately
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
       setConversationHistory(updatedHistory);
       
-      // Get a more specific response based on actual transcription
-      const specificResponse = await openai.chat.completions.create({
+      // Use streaming for faster response generation
+      const stream = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { 
@@ -474,14 +509,50 @@ function App() {
           },
           { role: 'user', content: transcription || '' }
         ],
-        max_tokens: 150, // Reduced for faster response
-        temperature: 0.8
+        max_tokens: 150,
+        temperature: 0.8,
+        stream: true // Enable streaming for faster response
       });
       
-      const aiMessage = specificResponse.choices[0].message.content || '';
+      let aiMessage = '';
+      let hasStartedSpeaking = false;
       
-      // Cache the response for future use
-      responseCache.current.set(cacheKey, aiMessage);
+      // Process streaming response for immediate avatar speech
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          aiMessage += content;
+          
+          // Start speaking as soon as we have enough content (minimum 20 characters)
+          if (aiMessage.length >= 20 && !hasStartedSpeaking) {
+            const partialResponse = aiMessage.trim();
+            if (partialResponse) {
+              setInput(partialResponse);
+              hasStartedSpeaking = true;
+              console.log('🚀 Starting speech with partial content:', partialResponse);
+            }
+          }
+        }
+      }
+      
+      // If we didn't start speaking with partial content, use the full response
+      if (!hasStartedSpeaking && aiMessage.trim()) {
+        setInput(aiMessage.trim());
+      }
+      
+      // Cache the full response for future use with timestamp
+      responseCache.current.set(cacheKey, { 
+        response: aiMessage.trim(), 
+        timestamp: Date.now() 
+      });
+      
+      // Clean up expired cache entries and limit cache size
+      const now = Date.now();
+      for (const [key, value] of responseCache.current.entries()) {
+        if ((now - value.timestamp) > CACHE_EXPIRY) {
+          responseCache.current.delete(key);
+        }
+      }
       
       // Limit cache size to prevent memory issues
       if (responseCache.current.size > 50) {
@@ -491,10 +562,8 @@ function App() {
         }
       }
       
-      setInput(aiMessage);
-      
       // Update conversation history with AI response
-      const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
+      const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage.trim() }];
       setConversationHistory(finalHistory);
       
       // Generate dynamic buttons in background (non-blocking)
@@ -517,6 +586,9 @@ function App() {
       if (!input || !avatar.current || !data?.sessionId) return;
       
       try {
+        // Set avatar speaking state immediately
+        setIsAvatarSpeaking(true);
+        
         // Start speaking immediately without waiting for completion
         const speakPromise = avatar.current.speak({ 
           taskRequest: { 
@@ -525,13 +597,20 @@ function App() {
           } 
         });
         
-        // Don't await - let it run in background for faster response
-        speakPromise.catch((err: any) => {
+        // Handle completion asynchronously
+        speakPromise.then(() => {
+          // Avatar finished speaking
+          setTimeout(() => {
+            setIsAvatarSpeaking(false);
+          }, 1000); // Brief delay to show speaking state
+        }).catch((err: any) => {
           console.error('Avatar speak error:', err);
+          setIsAvatarSpeaking(false);
         });
         
       } catch (err: any) {
         console.error('Avatar speak setup error:', err);
+        setIsAvatarSpeaking(false);
       }
     }
 
@@ -560,7 +639,7 @@ function App() {
         // Start automatic voice detection after avatar is ready
         setTimeout(() => {
           startContinuousListening();
-        }, 3000); // Wait 3 seconds for avatar to be ready
+        }, 1000); // Wait 3 seconds for avatar to be ready
 
         // Add user interaction handler for Android autoplay
         const handleUserInteraction = () => {
