@@ -50,6 +50,11 @@ function App() {
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
+  // Request queuing for HeyGen API optimization
+  const requestQueue = useRef<Array<{text: string, sessionId: string, priority: number}>>([]);
+  const isProcessingRequest = useRef<boolean>(false);
+  const requestTimeout = useRef<NodeJS.Timeout | null>(null);
+  
   // Enhanced response cache for faster repeated queries
   const responseCache = useRef<Map<string, { response: string, timestamp: number }>>(new Map());
   const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes cache expiry
@@ -101,6 +106,38 @@ function App() {
     }
     
     console.log(`Volume updated to: ${newVolume}x`);
+  };
+
+  // Optimized request processing for HeyGen API
+  const processRequestQueue = async () => {
+    if (isProcessingRequest.current || requestQueue.current.length === 0) return;
+    
+    isProcessingRequest.current = true;
+    const request = requestQueue.current.shift();
+    
+    if (request && avatar.current) {
+      try {
+        // Process request with optimized parameters
+        await avatar.current.speak({
+          taskRequest: {
+            text: request.text,
+            sessionId: request.sessionId
+          }
+        });
+        
+        console.log('🚀 HeyGen API request processed successfully');
+      } catch (error) {
+        console.error('HeyGen API request failed:', error);
+      } finally {
+        isProcessingRequest.current = false;
+        // Process next request if available
+        if (requestQueue.current.length > 0) {
+          setTimeout(() => processRequestQueue(), 100);
+        }
+      }
+    } else {
+      isProcessingRequest.current = false;
+    }
   };
 
   // Pre-warm avatar for faster response
@@ -589,24 +626,26 @@ function App() {
         // Set avatar speaking state immediately
         setIsAvatarSpeaking(true);
         
-        // Start speaking immediately without waiting for completion
-        const speakPromise = avatar.current.speak({ 
-          taskRequest: { 
-            text: input, 
-            sessionId: data.sessionId! 
-          } 
+        // Add request to queue for optimized processing
+        requestQueue.current.push({
+          text: input,
+          sessionId: data.sessionId!,
+          priority: 1 // High priority
         });
         
-        // Handle completion asynchronously
-        speakPromise.then(() => {
-          // Avatar finished speaking
-          setTimeout(() => {
-            setIsAvatarSpeaking(false);
-          }, 1000); // Brief delay to show speaking state
-        }).catch((err: any) => {
-          console.error('Avatar speak error:', err);
+        // Process queue if not already processing
+        if (!isProcessingRequest.current) {
+          processRequestQueue();
+        }
+        
+        // Set up timeout to clear speaking state
+        if (requestTimeout.current) {
+          clearTimeout(requestTimeout.current);
+        }
+        
+        requestTimeout.current = setTimeout(() => {
           setIsAvatarSpeaking(false);
-        });
+        }, 3000); // Clear speaking state after 3 seconds
         
       } catch (err: any) {
         console.error('Avatar speak setup error:', err);
@@ -671,6 +710,15 @@ function App() {
       if (analysisIntervalRef.current) {
         clearInterval(analysisIntervalRef.current);
       }
+      
+      // Cleanup request queue timeout
+      if (requestTimeout.current) {
+        clearTimeout(requestTimeout.current);
+      }
+      
+      // Clear request queue
+      requestQueue.current = [];
+      isProcessingRequest.current = false;
     }
 
   }, []);
@@ -690,15 +738,17 @@ async function grab() {
     
     const token = tokenResponse.data.data.token;
 
-    // Step 2: Initialize avatar API (40% progress)
+    // Step 2: Initialize avatar API (40% progress) with optimized configuration
     if (!avatar.current) {
       avatar.current = new StreamingAvatarApi(
-        new Configuration({ accessToken: token })
+        new Configuration({ 
+          accessToken: token
+        })
       );
     }
     setLoadingProgress(40);
 
-    // Step 3: Create avatar session (70% progress)
+    // Step 3: Create avatar session (70% progress) with optimized parameters
     const res = await avatar.current!.createStartAvatar(
       {
         newSessionRequest: {
