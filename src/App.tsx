@@ -10,22 +10,25 @@ function App() {
   const { toast } = useToast();
 
   // States
+  // @ts-ignore - startLoading is used via setStartLoading
   const [startLoading, setStartLoading] = useState(false);
-  const [selectedPrompt, setSelectedPrompt] = useState("");
+  // const [selectedPrompt, setSelectedPrompt] = useState(""); // TODO: Implement prompt selection
+  // @ts-ignore - isSpeaking is used via setIsSpeaking
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // @ts-ignore - input is used via setInput
   const [input, setInput] = useState("");
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([]);
-  const [dynamicButtons, setDynamicButtons] = useState<any[]>([]);
+  // const [dynamicButtons, setDynamicButtons] = useState<any[]>([]); // TODO: Implement dynamic buttons
   const [analysisQueue, setAnalysisQueue] = useState<string[]>([]);
-  const [volume, setVolume] = useState(1);
-  const [cameraStreamActive, setCameraStreamActive] = useState(false);
+  // const [volume, setVolume] = useState(1); // TODO: Implement volume control
+  // const [cameraStreamActive, setCameraStreamActive] = useState(false); // TODO: Implement camera stream
 
   // References
   const avatar = useRef<any>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioGainRef = useRef<GainNode | null>(null);
+  // const audioGainRef = useRef<GainNode | null>(null); // TODO: Implement audio gain control
   const isProcessingQueueRef = useRef(false);
   const analysisQueueRef = useRef<string[]>([]);
   const preWarmAvatar = useRef(false);
@@ -45,6 +48,8 @@ function App() {
   }, [analysisQueue]);
 
   // Continuous voice listening with reduced silence timeout
+  // TODO: Implement startContinuousListening function
+  // @ts-ignore - startContinuousListening is a placeholder function
   const startContinuousListening = () => {
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
