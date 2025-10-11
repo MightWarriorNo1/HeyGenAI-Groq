@@ -24,7 +24,7 @@ export interface TranscriptionOptions {
  */
 export const createChatCompletion = async (options: ChatCompletionOptions) => {
   try {
-    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+    const response = await fetch(`${GROQ_API_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -56,7 +56,7 @@ export const createChatCompletion = async (options: ChatCompletionOptions) => {
  */
 export const createStreamingChatCompletion = async (options: ChatCompletionOptions) => {
   try {
-    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+    const response = await fetch(`${GROQ_API_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -91,7 +91,7 @@ export const transcribeAudio = async (options: TranscriptionOptions) => {
     formData.append('file', options.file);
     formData.append('model', options.model || 'whisper-large-v3');
 
-    const response = await fetch(`${GROQ_API_BASE}/openai/v1/audio/transcriptions`, {
+    const response = await fetch(`${GROQ_API_BASE}/v1/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
@@ -122,7 +122,7 @@ export const translateAudio = async (options: TranscriptionOptions) => {
     formData.append('file', options.file);
     formData.append('model', options.model || 'whisper-large-v3');
 
-    const response = await fetch(`${GROQ_API_BASE}/openai/v1/audio/translations`, {
+    const response = await fetch(`${GROQ_API_BASE}/v1/audio/translations`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
@@ -184,7 +184,7 @@ export const generateDynamicButtons = async (conversation: ChatMessage[]) => {
  */
 export const analyzeImage = async (imageData: string, prompt: string) => {
   try {
-    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+    const response = await fetch(`${GROQ_API_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
