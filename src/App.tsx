@@ -251,7 +251,7 @@ function App() {
 
         let isRecording = false;
         let silenceStart: number | null = null;
-        const silenceTimeout = 1500; // Reduced to 1.5 seconds of silence for faster response
+        const silenceTimeout = 500; // Reduced to 1.5 seconds of silence for faster response
         const voiceThreshold = 25; // Lower threshold for more sensitive voice detection
 
         const checkForVoice = () => {
@@ -621,7 +621,7 @@ function App() {
         // Start automatic voice detection after avatar is ready
         setTimeout(() => {
           startContinuousListening();
-        }, 3000); // Wait 3 seconds for avatar to be ready
+        }, 1000); // Wait 3 seconds for avatar to be ready
 
         // Add user interaction handler for Android autoplay
         const handleUserInteraction = () => {
