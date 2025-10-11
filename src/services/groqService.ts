@@ -1,10 +1,5 @@
-import Groq from 'groq-sdk';
-
-// Initialize Groq client
-const groq = new Groq({
-  apiKey: import.meta.env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
+// Base URL for proxy requests
+const GROQ_API_BASE = '/api/groq';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -29,15 +24,27 @@ export interface TranscriptionOptions {
  */
 export const createChatCompletion = async (options: ChatCompletionOptions) => {
   try {
-    const response = await groq.chat.completions.create({
-      model: options.model || 'llama-3.1-8b-instant',
-      messages: options.messages,
-      max_tokens: options.max_tokens || 1000,
-      temperature: options.temperature || 0.7,
-      stream: options.stream || false,
+    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: options.model || 'llama-3.1-8b-instant',
+        messages: options.messages,
+        max_tokens: options.max_tokens || 1000,
+        temperature: options.temperature || 0.7,
+        stream: options.stream || false,
+      }),
     });
-    
-    return response;
+
+    if (!response.ok) {
+      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result;
   } catch (error) {
     console.error('Error creating chat completion:', error);
     throw error;
@@ -49,14 +56,25 @@ export const createChatCompletion = async (options: ChatCompletionOptions) => {
  */
 export const createStreamingChatCompletion = async (options: ChatCompletionOptions) => {
   try {
-    const response = await groq.chat.completions.create({
-      model: options.model || 'llama-3.1-8b-instant',
-      messages: options.messages,
-      max_tokens: options.max_tokens || 1000,
-      temperature: options.temperature || 0.7,
-      stream: true,
+    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: options.model || 'llama-3.1-8b-instant',
+        messages: options.messages,
+        max_tokens: options.max_tokens || 1000,
+        temperature: options.temperature || 0.7,
+        stream: true,
+      }),
     });
-    
+
+    if (!response.ok) {
+      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
+    }
+
     return response;
   } catch (error) {
     console.error('Error creating streaming chat completion:', error);
@@ -73,7 +91,7 @@ export const transcribeAudio = async (options: TranscriptionOptions) => {
     formData.append('file', options.file);
     formData.append('model', options.model || 'whisper-large-v3');
 
-    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    const response = await fetch(`${GROQ_API_BASE}/openai/v1/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
@@ -104,7 +122,7 @@ export const translateAudio = async (options: TranscriptionOptions) => {
     formData.append('file', options.file);
     formData.append('model', options.model || 'whisper-large-v3');
 
-    const response = await fetch('https://api.groq.com/openai/v1/audio/translations', {
+    const response = await fetch(`${GROQ_API_BASE}/openai/v1/audio/translations`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
@@ -166,36 +184,46 @@ export const generateDynamicButtons = async (conversation: ChatMessage[]) => {
  */
 export const analyzeImage = async (imageData: string, prompt: string) => {
   try {
-    const response = await groq.chat.completions.create({
-      model: 'llama-3.2-90b-vision-preview',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: prompt
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${imageData}`
+    const response = await fetch(`${GROQ_API_BASE}/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.2-90b-vision-preview',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: prompt
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/jpeg;base64,${imageData}`
+                }
               }
-            }
-          ]
-        }
-      ],
-      max_tokens: 1000,
-      temperature: 0.7
+            ]
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7
+      }),
     });
 
+    if (!response.ok) {
+      throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
     return {
-      content: response.choices[0].message.content || ''
+      content: result.choices[0].message.content || ''
     };
   } catch (error) {
     console.error('Error analyzing image with Groq:', error);
     throw error;
   }
 };
-
-export default groq;
