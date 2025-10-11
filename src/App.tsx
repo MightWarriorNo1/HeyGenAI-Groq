@@ -1,7 +1,7 @@
 /*eslint-disable*/
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState, lazy, Suspense, useCallback } from 'react';
-import { createChatCompletion, generateDynamicButtons, analyzeImage, transcribeAudio } from './services/groqService';
+import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
@@ -183,9 +183,25 @@ function App() {
   };
 
   // Function to generate dynamic buttons based on conversation context
-  const generateDynamicButtonsLocal = async (conversation: Array<{role: string, content: string}>) => {
+  const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
     try {
-      const buttons = await generateDynamicButtons(conversation as Array<{role: 'system' | 'user' | 'assistant', content: string}>);
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: `Generate 4 witty button prompts (1-3 words each) based on conversation. Return only the 4 button texts, one per line.`
+          },
+          {
+            role: 'user',
+            content: `Context: ${conversation.slice(-1).map(msg => msg.content).join(' ')}` // Only use last message for fastest processing
+          }
+        ],
+        max_tokens: 60, // Further reduced for faster response
+        temperature: 0.6 // Lower temperature for more consistent, faster responses
+      });
+      
+      const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
       setDynamicButtons(buttons);
     } catch (error) {
       console.error('Error generating dynamic buttons:', error);
@@ -199,7 +215,25 @@ function App() {
     }
   };
 
-  // Groq API key is handled in the service file
+  const apiKey: any = import.meta.env.VITE_OPENAI_API_KEY;
+  const openai = new OpenAI({
+    apiKey: apiKey,
+    dangerouslyAllowBrowser: true,
+    // Optimized for faster responses
+    timeout: 8000, // Reduced timeout for faster failure detection
+    maxRetries: 1, // Reduced retries for faster response
+    // Add keep-alive for connection reuse
+    fetch: (url, options) => {
+      return fetch(url, {
+        ...options,
+        keepalive: true,
+        headers: {
+          ...options?.headers,
+          'Connection': 'keep-alive'
+        }
+      });
+    }
+  });
 
 
   // Function to start continuous listening for voice input
@@ -241,7 +275,7 @@ function App() {
                 type: 'audio/wav',
               });
               audioChunks.current = [];
-              transcribeAudioLocal(audioBlob);
+              transcribeAudio(audioBlob);
               isRecording = false;
             };
 
@@ -306,7 +340,7 @@ function App() {
       let aiResponse;
 
       if (file.type.startsWith('image/')) {
-        // Handle images with Groq (note: Groq doesn't have direct vision capabilities)
+        // Handle images with GPT-4 Vision
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -318,16 +352,27 @@ function App() {
           reader.readAsDataURL(file);
         });
 
-        // Use Groq's real vision model for image analysis
-        const imageAnalysis = await analyzeImage(base64, `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`);
-        
-        aiResponse = {
-          choices: [{
-            message: {
-              content: imageAnalysis.content
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${file.type};base64,${base64}`
+                  }
+                }
+              ]
             }
-          }]
-        };
+          ],
+          max_tokens: 1000
+        });
 
       } else if (file.type.startsWith('video/')) {
         // Handle videos - extract frame for analysis
@@ -354,16 +399,27 @@ function App() {
         // Convert canvas to base64
         const frameBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
         
-        // Use Groq's real vision model for video frame analysis
-        const videoAnalysis = await analyzeImage(frameBase64, `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`);
-        
-        aiResponse = {
-          choices: [{
-            message: {
-              content: videoAnalysis.content
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:image/jpeg;base64,${frameBase64}`
+                  }
+                }
+              ]
             }
-          }]
-        };
+          ],
+          max_tokens: 1000
+        });
 
         URL.revokeObjectURL(videoUrl);
 
@@ -372,28 +428,26 @@ function App() {
         const fileContent = await file.text();
         const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
         
-        aiResponse = await createChatCompletion({
-          model: 'llama-3.1-8b-instant',
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
           messages: [
             { role: 'user', content: prompt }
-          ],
-          max_tokens: 1000
+          ]
         });
 
       } else {
         // For other file types, provide basic analysis
         const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
         
-        aiResponse = await createChatCompletion({
-          model: 'llama-3.1-8b-instant',
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
           messages: [
             { role: 'user', content: prompt }
-          ],
-          max_tokens: 1000
+          ]
         });
       }
       
-      setInput((aiResponse as any).choices[0].message.content || '');
+      setInput(aiResponse.choices[0].message.content || '');
       
     } catch (error: any) {
       console.error('Error processing file:', error);
@@ -406,16 +460,16 @@ function App() {
   };
 
   // Function to transcribe the audio to text and then get the respective response of the given prompt
-  async function transcribeAudioLocal(audioBlob: Blob) {
+  async function transcribeAudio(audioBlob: Blob) {
     try {
-      // Convert Blob to File for Groq Whisper API
+      // Convert Blob to File
       const audioFile = new File([audioBlob], 'recording.wav', {
         type: 'audio/wav',
       });
 
-      // Start transcription using Groq's real Whisper API
-      const transcriptionResponse = await transcribeAudio({
-        model: 'whisper-large-v3',
+      // Start transcription for faster processing
+      const transcriptionResponse = await openai.audio.transcriptions.create({
+        model: 'whisper-1',
         file: audioFile,
       });
 
@@ -437,7 +491,7 @@ function App() {
         setConversationHistory(finalHistory);
         
         // Generate dynamic buttons in background
-        generateDynamicButtonsLocal(finalHistory as Array<{role: string, content: string}>).catch(error => {
+        generateDynamicButtons(finalHistory).catch(error => {
           console.warn('Dynamic buttons generation failed:', error);
         });
         return;
@@ -460,7 +514,7 @@ function App() {
         setConversationHistory(finalHistory);
         
         // Generate dynamic buttons in background
-        generateDynamicButtonsLocal(finalHistory as Array<{role: string, content: string}>).catch(error => {
+        generateDynamicButtons(finalHistory).catch(error => {
           console.warn('Dynamic buttons generation failed:', error);
         });
         return;
@@ -473,8 +527,8 @@ function App() {
       setConversationHistory(limitedHistory);
       
       // Get a more specific response based on actual transcription with streaming
-      const specificResponse = await createChatCompletion({
-        model: 'llama-3.1-8b-instant',
+      const specificResponse = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
         messages: [
           { 
             role: 'system', 
@@ -487,7 +541,7 @@ function App() {
         stream: false // Keep false for now, but we'll optimize the response handling
       });
       
-      const aiMessage = (specificResponse as any).choices[0].message.content || '';
+      const aiMessage = specificResponse.choices[0].message.content || '';
       
       // Cache the response for future use
       responseCache.current.set(cacheKey, aiMessage);
@@ -507,7 +561,7 @@ function App() {
       setConversationHistory(finalHistory);
       
       // Generate dynamic buttons in background (non-blocking)
-      generateDynamicButtonsLocal(finalHistory as Array<{role: 'system' | 'user' | 'assistant', content: string}>).catch(error => {
+      generateDynamicButtons(finalHistory).catch(error => {
         console.warn('Dynamic buttons generation failed:', error);
       });
     } catch (error: any) {
@@ -798,24 +852,46 @@ const handleMotionStopped = async () => {
     canvas.height = cameraVideoRef.current.videoHeight;
     ctx.drawImage(cameraVideoRef.current, 0, 0);
     
-    // Convert to base64 for Groq Vision API
+    // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
     
-    // Analyze with Groq's real vision model
-    const imageAnalysis = await analyzeImage(imageData, "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! Speak directly to the person as if you're commenting on what they're doing right now.");
-    
-    // Since Groq doesn't have streaming vision, we'll simulate the response
-    const response = {
-      [Symbol.asyncIterator]: async function* () {
-        yield {
-          choices: [{
-            delta: {
-              content: imageAnalysis.content
+    // Analyze with OpenAI Vision using streaming for faster response
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // Updated to use gpt-4o model
+      messages: [
+        {
+          role: "system",
+          content: `You are a hilarious AI that analyzes images with humor and wit! Your analysis should be:
+          - Extremely funny and entertaining
+          - Use puns, jokes, and witty observations about what you see
+          - Be enthusiastic and make people laugh
+          - Add humorous commentary about facial expressions, poses, or situations
+          - Make funny comparisons or references
+          - Keep it light-hearted and positive
+          - Always end with a funny observation or joke
+          - Keep responses concise (under 200 characters) for real-time display
+          - Write as if you're speaking directly to the person (no emojis in speech)
+          - Use conversational, natural language that sounds good when spoken aloud`
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! Speak directly to the person as if you're commenting on what they're doing right now."
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageData
+              }
             }
-          }]
-        };
-      }
-    };
+          ]
+        }
+      ],
+      max_tokens: 200,
+      stream: true // Enable streaming for faster response
+    });
     
     let fullAnalysis = '';
     let hasStartedSpeaking = false;
@@ -859,8 +935,8 @@ const handleMotionStopped = async () => {
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
-    createChatCompletion({
-      model: 'llama-3.1-8b-instant',
+    openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
       messages: [
         { 
           role: 'system', 
@@ -871,7 +947,7 @@ useEffect(() => {
       max_tokens: 80, // Further reduced for faster response
       temperature: 0.7 // Slightly lower for more consistent responses
     }).then(aiResponse => {
-      setInput((aiResponse as any).choices[0].message.content || '');
+      setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
       console.log(error);
       toast({
