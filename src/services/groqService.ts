@@ -1,5 +1,5 @@
-// Base URL for proxy requests
-const GROQ_API_BASE = '/api/groq';
+// Base URL for API requests - use proxy in development, direct API in production
+const GROQ_API_BASE = import.meta.env.DEV ? '/api/groq' : 'https://api.groq.com';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
