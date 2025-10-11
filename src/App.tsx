@@ -38,7 +38,7 @@ function App() {
 
   // Initialize OpenAI
   const openai = new OpenAI({
-    apiKey: import.meta.env.VITEOPENAI_API_KEY,
+    apiKey: import.meta.env.VITE_OPENAI_API_KEY,
   });
 
   // Sync analysisQueue with ref for processing
