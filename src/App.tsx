@@ -34,7 +34,6 @@ function App() {
   // Image/Video analysis conversation state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisStep, setAnalysisStep] = useState<'upload' | 'question' | 'analysis' | 'complete'>('upload');
-  const [userQuestion, setUserQuestion] = useState<string>('');
   const [analysisContext, setAnalysisContext] = useState<{
     file: File;
     userQuestion: string;
@@ -111,7 +110,7 @@ function App() {
   // Audio context and gain node for volume control
   const audioContextRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
-  const [volumeLevel, setVolumeLevel] = useState<number>(2.0); // Default to 2x volume boost
+  const volumeLevel = 2.0; // Default to 2x volume boost
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   
   let timeout: any;
@@ -382,7 +381,6 @@ function App() {
   const resetAnalysisState = () => {
     setUploadedFile(null);
     setAnalysisStep('upload');
-    setUserQuestion('');
     setAnalysisContext(null);
   };
 
@@ -546,7 +544,6 @@ function App() {
       // Reset analysis state on error
       setAnalysisStep('upload');
       setUploadedFile(null);
-      setUserQuestion('');
       setAnalysisContext(null);
     }
   };
@@ -735,7 +732,6 @@ function App() {
       // Handle interactive analysis flow
       if (analysisStep === 'question' && uploadedFile) {
         console.log('🎯 [DEBUG] Processing user question for file analysis');
-        setUserQuestion(transcription);
         setAnalysisStep('analysis');
         
         // Process the analysis based on user's question
