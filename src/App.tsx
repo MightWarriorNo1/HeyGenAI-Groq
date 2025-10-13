@@ -34,6 +34,7 @@ function App() {
   // Image/Video analysis conversation state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const uploadedFileRef = useRef<File | null>(null);
+  const questionRef = useRef<string>('');
   const [analysisStep, setAnalysisStep] = useState<'upload' | 'question' | 'analysis' | 'complete'>('upload');
   const [analysisContext, setAnalysisContext] = useState<{
     file: File;
@@ -371,9 +372,12 @@ function App() {
       // Ask what help the user needs first
       const questionPrompt = `I see you've uploaded a ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}. What would you like me to help you with? Please tell me what you need assistance with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}.`;
       
-      setInput(questionPrompt);
-      
-      console.log('🎯 [DEBUG] Question prompt set:', questionPrompt);
+      // Store the question and set input after a small delay to ensure state is properly set
+      questionRef.current = questionPrompt;
+      setTimeout(() => {
+        setInput(questionPrompt);
+        console.log('🎯 [DEBUG] Question prompt set:', questionPrompt);
+      }, 100);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
@@ -742,8 +746,10 @@ function App() {
 
       const transcription = transcriptionResponse.text;
       
-      // Handle interactive analysis flow
+      // Handle interactive analysis flow - PRIORITY CHECK
       const currentFile = uploadedFile || uploadedFileRef.current;
+      console.log('🎯 [DEBUG] Analysis flow check - analysisStep:', analysisStep, 'currentFile:', !!currentFile);
+      
       if (analysisStep === 'question' && currentFile) {
         console.log('🎯 [DEBUG] Processing user question for file analysis');
         console.log('🎯 [DEBUG] User question:', transcription);
@@ -828,6 +834,7 @@ function App() {
       // Don't process regular conversation if we're in the middle of file analysis
       if (analysisStep === 'question' || analysisStep === 'analysis') {
         console.log('🎯 [DEBUG] Skipping regular conversation - in file analysis mode');
+        console.log('🎯 [DEBUG] This should not happen - analysis flow should have been handled above');
         return;
       }
       
