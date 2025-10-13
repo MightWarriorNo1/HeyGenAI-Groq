@@ -388,6 +388,8 @@ function App() {
   const processFileAnalysis = async (file: File, userQuestion: string) => {
     try {
       console.log('🎯 [DEBUG] Starting file analysis with user question:', userQuestion);
+      console.log('🎯 [DEBUG] File type:', file.type);
+      console.log('🎯 [DEBUG] File name:', file.name);
       
       let aiResponse;
 
@@ -732,6 +734,8 @@ function App() {
       // Handle interactive analysis flow
       if (analysisStep === 'question' && uploadedFile) {
         console.log('🎯 [DEBUG] Processing user question for file analysis');
+        console.log('🎯 [DEBUG] User question:', transcription);
+        console.log('🎯 [DEBUG] Uploaded file:', uploadedFile.name, uploadedFile.type);
         setAnalysisStep('analysis');
         
         // Process the analysis based on user's question
@@ -807,8 +811,15 @@ function App() {
         return;
       }
       
-      // Reset analysis state if user starts a new conversation
-      if (analysisStep !== 'upload') {
+      // Don't process regular conversation if we're in the middle of file analysis
+      if (analysisStep === 'question' || analysisStep === 'analysis') {
+        console.log('🎯 [DEBUG] Skipping regular conversation - in file analysis mode');
+        return;
+      }
+      
+      // Reset analysis state only if user starts a completely new conversation
+      // (not when responding to avatar's question about uploaded file)
+      if (analysisStep === 'complete' && !analysisContext) {
         resetAnalysisState();
       }
       
