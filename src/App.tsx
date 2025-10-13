@@ -33,6 +33,7 @@ function App() {
 
   // Image/Video analysis conversation state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const uploadedFileRef = useRef<File | null>(null);
   const [analysisStep, setAnalysisStep] = useState<'upload' | 'question' | 'analysis' | 'complete'>('upload');
   const [analysisContext, setAnalysisContext] = useState<{
     file: File;
@@ -352,6 +353,8 @@ function App() {
   // Function to handle file upload with interactive voice chat
   const handleFileUpload = async (file: File) => {
     try {
+      console.log('🎯 [DEBUG] File upload started:', file.name, file.type);
+      
       // Show success message
       toast({
         title: "File uploaded successfully!",
@@ -360,12 +363,17 @@ function App() {
 
       // Store the uploaded file and set up for interactive analysis
       setUploadedFile(file);
+      uploadedFileRef.current = file;
       setAnalysisStep('question');
+      
+      console.log('🎯 [DEBUG] File upload state set - uploadedFile:', file.name, 'analysisStep: question');
       
       // Ask what help the user needs first
       const questionPrompt = `I see you've uploaded a ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}. What would you like me to help you with? Please tell me what you need assistance with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}.`;
       
       setInput(questionPrompt);
+      
+      console.log('🎯 [DEBUG] Question prompt set:', questionPrompt);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
@@ -379,7 +387,9 @@ function App() {
 
   // Function to reset analysis state
   const resetAnalysisState = () => {
+    console.log('🎯 [DEBUG] Resetting analysis state');
     setUploadedFile(null);
+    uploadedFileRef.current = null;
     setAnalysisStep('upload');
     setAnalysisContext(null);
   };
@@ -696,6 +706,7 @@ function App() {
   async function transcribeAudio(audioBlob: Blob) {
     const startTime = performance.now();
     console.log('🎯 [DEBUG] Starting audio transcription process');
+    console.log('🎯 [DEBUG] Current state - analysisStep:', analysisStep, 'uploadedFile:', uploadedFile?.name, 'uploadedFileRef:', uploadedFileRef.current?.name, 'analysisContext:', !!analysisContext);
     
     try {
       // Convert Blob to File
@@ -732,14 +743,17 @@ function App() {
       const transcription = transcriptionResponse.text;
       
       // Handle interactive analysis flow
-      if (analysisStep === 'question' && uploadedFile) {
+      const currentFile = uploadedFile || uploadedFileRef.current;
+      if (analysisStep === 'question' && currentFile) {
         console.log('🎯 [DEBUG] Processing user question for file analysis');
         console.log('🎯 [DEBUG] User question:', transcription);
-        console.log('🎯 [DEBUG] Uploaded file:', uploadedFile.name, uploadedFile.type);
+        console.log('🎯 [DEBUG] Uploaded file:', currentFile.name, currentFile.type);
+        console.log('🎯 [DEBUG] Current analysisStep:', analysisStep);
         setAnalysisStep('analysis');
+        console.log('🎯 [DEBUG] Analysis step changed to: analysis');
         
         // Process the analysis based on user's question
-        await processFileAnalysis(uploadedFile, transcription);
+        await processFileAnalysis(currentFile, transcription);
         return;
       }
       
