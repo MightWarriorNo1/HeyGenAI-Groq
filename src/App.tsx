@@ -41,6 +41,7 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
   
   // Preloaded responses for common queries to reduce API calls
   const preloadedResponses = useRef<Map<string, string>>(new Map([
@@ -78,6 +79,25 @@ function App() {
   
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
+  
+  // Performance tracking - using state for real-time UI updates
+  const [performanceMetrics, setPerformanceMetrics] = useState({
+    totalRequests: 0,
+    averageResponseTime: 0,
+    transcriptionTimes: [] as number[],
+    openaiTimes: [] as number[],
+    avatarSpeakTimes: [] as number[]
+  });
+  
+  // Function to log performance summary
+  const logPerformanceSummary = () => {
+    console.log('📊 [PERFORMANCE SUMMARY]');
+    console.log(`📊 Total requests: ${performanceMetrics.totalRequests}`);
+    console.log(`📊 Average response time: ${performanceMetrics.averageResponseTime.toFixed(2)}ms`);
+    console.log(`📊 Average transcription time: ${performanceMetrics.transcriptionTimes.length > 0 ? (performanceMetrics.transcriptionTimes.reduce((a, b) => a + b, 0) / performanceMetrics.transcriptionTimes.length).toFixed(2) : 0}ms`);
+    console.log(`📊 Average OpenAI time: ${performanceMetrics.openaiTimes.length > 0 ? (performanceMetrics.openaiTimes.reduce((a, b) => a + b, 0) / performanceMetrics.openaiTimes.length).toFixed(2) : 0}ms`);
+    console.log(`📊 Average avatar speak time: ${performanceMetrics.avatarSpeakTimes.length > 0 ? (performanceMetrics.avatarSpeakTimes.reduce((a, b) => a + b, 0) / performanceMetrics.avatarSpeakTimes.length).toFixed(2) : 0}ms`);
+  };
   
   // Audio context and gain node for volume control
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -197,8 +217,8 @@ function App() {
             content: `Context: ${conversation.slice(-1).map(msg => msg.content).join(' ')}` // Only use last message for fastest processing
           }
         ],
-        max_tokens: 60, // Further reduced for faster response
-        temperature: 0.6 // Lower temperature for more consistent, faster responses
+        max_tokens: 40, // Even more reduced for faster response
+        temperature: 0.5 // Lower temperature for more consistent, faster responses
       });
       
       const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
@@ -260,7 +280,10 @@ function App() {
 
           if (avgVolume > voiceThreshold && !isRecording) {
             // Voice detected, start recording
-            console.log('🎤 Someone is trying to talk to me! Let me listen...');
+            const recordingStartTime = performance.now();
+            console.log('🎤 [DEBUG] Voice detected! Starting recording...');
+            console.log(`🎤 [DEBUG] Volume level: ${avgVolume.toFixed(2)}`);
+            
             isRecording = true;
             silenceStart = null;
             mediaRecorder.current = new MediaRecorder(stream);
@@ -271,9 +294,16 @@ function App() {
             };
 
             mediaRecorder.current.onstop = () => {
+              const recordingEndTime = performance.now();
+              const recordingDuration = recordingEndTime - recordingStartTime;
+              console.log(`🎤 [DEBUG] Recording stopped after ${recordingDuration.toFixed(2)}ms`);
+              console.log(`🎤 [DEBUG] Audio chunks collected: ${audioChunks.current.length}`);
+              
               const audioBlob = new Blob(audioChunks.current, {
                 type: 'audio/wav',
               });
+              console.log(`🎤 [DEBUG] Audio blob size: ${(audioBlob.size / 1024).toFixed(2)}KB`);
+              
               audioChunks.current = [];
               transcribeAudio(audioBlob);
               isRecording = false;
@@ -286,7 +316,8 @@ function App() {
             if (!silenceStart) silenceStart = Date.now();
 
             if (Date.now() - silenceStart >= silenceTimeout) {
-              console.log('🤫 Ah, the silence! Let me process what you said...');
+              const silenceDuration = Date.now() - silenceStart;
+              console.log(`🤫 [DEBUG] Silence detected for ${silenceDuration}ms, stopping recording...`);
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
@@ -461,11 +492,17 @@ function App() {
 
   // Function to transcribe the audio to text and then get the respective response of the given prompt
   async function transcribeAudio(audioBlob: Blob) {
+    const startTime = performance.now();
+    console.log('🎯 [DEBUG] Starting audio transcription process');
+    
     try {
       // Convert Blob to File
       const audioFile = new File([audioBlob], 'recording.wav', {
         type: 'audio/wav',
       });
+
+      console.log('🎯 [DEBUG] Audio file created, starting transcription...');
+      const transcriptionStartTime = performance.now();
 
       // Start transcription for faster processing
       const transcriptionResponse = await openai.audio.transcriptions.create({
@@ -473,14 +510,38 @@ function App() {
         file: audioFile,
       });
 
+      const transcriptionEndTime = performance.now();
+      const transcriptionDuration = transcriptionEndTime - transcriptionStartTime;
+      console.log(`🎯 [DEBUG] Transcription completed in ${transcriptionDuration.toFixed(2)}ms`);
+      console.log('🎯 [DEBUG] Transcription result:', transcriptionResponse.text);
+      
+      // Track performance metrics
+      setPerformanceMetrics(prev => {
+        const newTranscriptionTimes = [...prev.transcriptionTimes, transcriptionDuration];
+        console.log(`🎯 [DEBUG] Updated transcription metrics: ${transcriptionDuration.toFixed(2)}ms`);
+        
+        return {
+          ...prev,
+          transcriptionTimes: newTranscriptionTimes,
+          totalRequests: prev.totalRequests + 1
+        };
+      });
+
       const transcription = transcriptionResponse.text;
       
       // Check preloaded responses first for instant response
+      const preloadCheckStart = performance.now();
       const normalizedInput = transcription.toLowerCase().trim();
       const preloadedResponse = preloadedResponses.current.get(normalizedInput);
+      const preloadCheckEnd = performance.now();
+      
+      console.log(`🎯 [DEBUG] Preload check completed in ${(preloadCheckEnd - preloadCheckStart).toFixed(2)}ms`);
       
       if (preloadedResponse) {
-        console.log('⚡ Using preloaded response for instant avatar response!');
+        const preloadTotalTime = performance.now() - startTime;
+        console.log(`⚡ [DEBUG] Using preloaded response! Total time: ${preloadTotalTime.toFixed(2)}ms`);
+        console.log('⚡ [DEBUG] Preloaded response:', preloadedResponse);
+        
         setInput(preloadedResponse);
         
         const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
@@ -498,11 +559,18 @@ function App() {
       }
       
       // Check cache second for faster response
+      const cacheCheckStart = performance.now();
       const cacheKey = normalizedInput;
       const cachedResponse = responseCache.current.get(cacheKey);
+      const cacheCheckEnd = performance.now();
+      
+      console.log(`🎯 [DEBUG] Cache check completed in ${(cacheCheckEnd - cacheCheckStart).toFixed(2)}ms`);
       
       if (cachedResponse) {
-        console.log('🚀 Using cached response for faster reply!');
+        const cacheTotalTime = performance.now() - startTime;
+        console.log(`🚀 [DEBUG] Using cached response! Total time: ${cacheTotalTime.toFixed(2)}ms`);
+        console.log('🚀 [DEBUG] Cached response:', cachedResponse);
+        
         setInput(cachedResponse);
         
         // Update conversation history
@@ -521,29 +589,56 @@ function App() {
       }
       
       // Update conversation history with limited size for faster processing
+      const historyUpdateStart = performance.now();
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
       // Keep only last 4 messages (2 exchanges) to reduce API payload
       const limitedHistory = updatedHistory.slice(-4);
       setConversationHistory(limitedHistory);
+      const historyUpdateEnd = performance.now();
+      
+      console.log(`🎯 [DEBUG] History update completed in ${(historyUpdateEnd - historyUpdateStart).toFixed(2)}ms`);
       
       // Get a more specific response based on actual transcription with streaming
+      console.log('🎯 [DEBUG] Starting OpenAI API call...');
+      const openaiStartTime = performance.now();
+      
       const specificResponse = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { 
             role: 'system', 
-            content: `You are a clever, witty AI assistant. Keep responses under 50 words, be engaging and conversational.`
+            content: `You are a clever, witty AI assistant. Keep responses under 10 words, be engaging and conversational.`
           },
           { role: 'user', content: transcription || '' }
         ],
-        max_tokens: 80, // Further reduced for faster response
-        temperature: 0.7, // Slightly lower for more consistent responses
+        max_tokens: 15, // Much more reduced for faster response
+        temperature: 0.5, // Lower for more consistent, faster responses
         stream: false // Keep false for now, but we'll optimize the response handling
       });
       
+      const openaiEndTime = performance.now();
+      const openaiDuration = openaiEndTime - openaiStartTime;
+      console.log(`🎯 [DEBUG] OpenAI API call completed in ${openaiDuration.toFixed(2)}ms`);
+      
+      // Track performance metrics
+      setPerformanceMetrics(prev => {
+        const newOpenaiTimes = [...prev.openaiTimes, openaiDuration];
+        const newAverage = newOpenaiTimes.length > 0 ? 
+          newOpenaiTimes.reduce((a, b) => a + b, 0) / newOpenaiTimes.length : 0;
+        
+        console.log(`🎯 [DEBUG] Updated OpenAI metrics: ${openaiDuration.toFixed(2)}ms, avg: ${newAverage.toFixed(2)}ms`);
+        
+        return {
+          ...prev,
+          openaiTimes: newOpenaiTimes
+        };
+      });
+      
       const aiMessage = specificResponse.choices[0].message.content || '';
+      console.log('🎯 [DEBUG] AI response:', aiMessage);
       
       // Cache the response for future use
+      const cacheUpdateStart = performance.now();
       responseCache.current.set(cacheKey, aiMessage);
       
       // Limit cache size to prevent memory issues
@@ -553,6 +648,9 @@ function App() {
           responseCache.current.delete(firstKey);
         }
       }
+      const cacheUpdateEnd = performance.now();
+      
+      console.log(`🎯 [DEBUG] Cache update completed in ${(cacheUpdateEnd - cacheUpdateStart).toFixed(2)}ms`);
       
       setInput(aiMessage);
       
@@ -564,6 +662,24 @@ function App() {
       generateDynamicButtons(finalHistory).catch(error => {
         console.warn('Dynamic buttons generation failed:', error);
       });
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`🎯 [DEBUG] Total processing time: ${totalTime.toFixed(2)}ms`);
+      console.log(`🎯 [DEBUG] Breakdown: Transcription: ${transcriptionDuration.toFixed(2)}ms, OpenAI: ${openaiDuration.toFixed(2)}ms`);
+      
+      // Update average response time
+      setPerformanceMetrics(prev => {
+        const newAverage = (prev.averageResponseTime * (prev.totalRequests - 1) + totalTime) / prev.totalRequests;
+        return {
+          ...prev,
+          averageResponseTime: newAverage
+        };
+      });
+      
+      // Log performance summary every 5 requests
+      if ((performanceMetrics.totalRequests + 1) % 5 === 0) {
+        logPerformanceSummary();
+      }
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
       toast({
@@ -579,19 +695,84 @@ function App() {
     function speak() {
       if (!input || !avatar.current || !data?.sessionId) return;
       
+      const speakStartTime = performance.now();
+      console.log('🎯 [DEBUG] Starting avatar speak process');
+      console.log('🎯 [DEBUG] Input text:', input);
+      
       try {
-        // Start speaking immediately without any delays
-        avatar.current.speak({ 
+        // Optimize text length for faster avatar response
+        // Much shorter text = much faster TTS processing
+        // Break long responses into chunks for faster processing
+        let optimizedText = input;
+        if (input.length > 60) {
+          // Find the last sentence or word boundary before 60 characters
+          const truncated = input.substring(0, 60);
+          const lastSentence = truncated.lastIndexOf('.');
+          const lastWord = truncated.lastIndexOf(' ');
+          
+          if (lastSentence > 30) {
+            optimizedText = input.substring(0, lastSentence + 1);
+          } else if (lastWord > 20) {
+            optimizedText = input.substring(0, lastWord) + "...";
+          } else {
+            optimizedText = truncated + "...";
+          }
+        }
+        
+        console.log(`🎯 [DEBUG] Text length: ${input.length} chars, optimized: ${optimizedText.length} chars`);
+        
+        // Start speaking immediately without waiting for completion
+        const speakPromise = avatar.current.speak({ 
           taskRequest: { 
-            text: input, 
+            text: optimizedText, 
             sessionId: data.sessionId! 
           } 
-        }).catch((err: any) => {
-          console.error('Avatar speak error:', err);
         });
         
+        const speakInitTime = performance.now();
+        console.log(`🎯 [DEBUG] Avatar speak initiated in ${(speakInitTime - speakStartTime).toFixed(2)}ms`);
+        
+        // Don't wait for completion - let it run in background
+        // This reduces perceived response time significantly
+        speakPromise.then(() => {
+          const speakCompleteTime = performance.now();
+          const speakDuration = speakCompleteTime - speakStartTime;
+          console.log(`🎯 [DEBUG] Avatar speak completed in ${speakDuration.toFixed(2)}ms`);
+          
+          // Track avatar speak time
+          setPerformanceMetrics(prev => {
+            const newAvatarSpeakTimes = [...prev.avatarSpeakTimes, speakDuration];
+            console.log(`🎯 [DEBUG] Updated avatar speak metrics: ${speakDuration.toFixed(2)}ms`);
+            
+            return {
+              ...prev,
+              avatarSpeakTimes: newAvatarSpeakTimes
+            };
+          });
+        }).catch((err: any) => {
+          const speakErrorTime = performance.now();
+          const speakErrorDuration = speakErrorTime - speakStartTime;
+          console.error(`🎯 [DEBUG] Avatar speak error after ${speakErrorDuration.toFixed(2)}ms:`, err);
+        });
+        
+        // Track initiation time (not completion time) for better UX
+        const initiationTime = speakInitTime - speakStartTime;
+        setPerformanceMetrics(prev => {
+          const newAvatarSpeakTimes = [...prev.avatarSpeakTimes, initiationTime];
+          console.log(`🎯 [DEBUG] Updated avatar initiation metrics: ${initiationTime.toFixed(2)}ms`);
+          
+          return {
+            ...prev,
+            avatarSpeakTimes: newAvatarSpeakTimes
+          };
+        });
+        
+        console.log(`🎯 [DEBUG] Avatar speak started successfully in ${initiationTime.toFixed(2)}ms - not waiting for completion`);
+        
       } catch (err: any) {
-        console.error('Avatar speak setup error:', err);
+        const speakSetupErrorTime = performance.now();
+        const speakSetupErrorDuration = speakSetupErrorTime - speakStartTime;
+        console.error(`🎯 [DEBUG] Avatar speak setup error after ${speakSetupErrorDuration.toFixed(2)}ms:`, err);
       }
     }
 
@@ -935,21 +1116,48 @@ const handleMotionStopped = async () => {
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
+    const buttonClickStartTime = performance.now();
+    console.log('🎯 [DEBUG] Button clicked, starting OpenAI API call');
+    console.log('🎯 [DEBUG] Selected prompt:', selectedPrompt);
+    
+    const openaiStartTime = performance.now();
+    
     openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
-      messages: [
-        { 
-          role: 'system', 
-          content: 'You are a witty AI assistant. Keep responses under 50 words, be engaging and conversational.'
-        },
-        { role: 'user', content: selectedPrompt }
-      ],
-      max_tokens: 80, // Further reduced for faster response
-      temperature: 0.7 // Slightly lower for more consistent responses
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are a witty AI assistant. Keep responses under 10 words, be engaging and conversational.'
+          },
+          { role: 'user', content: selectedPrompt }
+        ],
+        max_tokens: 15, // Much more reduced for faster response
+      temperature: 0.6 // Lower for more consistent, faster responses
     }).then(aiResponse => {
+      const openaiEndTime = performance.now();
+      const openaiDuration = openaiEndTime - openaiStartTime;
+      const totalDuration = openaiEndTime - buttonClickStartTime;
+      
+      console.log(`🎯 [DEBUG] OpenAI API call completed in ${openaiDuration.toFixed(2)}ms`);
+      console.log(`🎯 [DEBUG] Total button response time: ${totalDuration.toFixed(2)}ms`);
+      console.log('🎯 [DEBUG] AI response:', aiResponse.choices[0].message.content);
+      
+      // Track OpenAI timing for button clicks
+      setPerformanceMetrics(prev => {
+        const newOpenaiTimes = [...prev.openaiTimes, openaiDuration];
+        console.log(`🎯 [DEBUG] Button OpenAI timing: ${openaiDuration.toFixed(2)}ms`);
+        return {
+          ...prev,
+          openaiTimes: newOpenaiTimes
+        };
+      });
+      
       setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
-      console.log(error);
+      const errorTime = performance.now();
+      const errorDuration = errorTime - buttonClickStartTime;
+      console.error(`🎯 [DEBUG] Button click error after ${errorDuration.toFixed(2)}ms:`, error);
+      
       toast({
         variant: "destructive",
         title: "Uh oh! Something went wrong.",
@@ -1152,6 +1360,37 @@ return (
               {loadingProgress}% complete
             </div>
           </div>
+        </div>
+      )}
+
+       {/* Debug Panel Toggle */}
+       <button
+         onClick={() => setShowDebugPanel(!showDebugPanel)}
+         className="absolute top-4 left-4 bg-blue-500/80 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-mono z-30"
+       >
+         {showDebugPanel ? 'Hide Debug' : 'Show Debug'}
+       </button>
+
+       {/* Debug Panel */}
+       {showDebugPanel && (
+         <div className="absolute top-16 left-4 bg-black/90 text-white p-4 rounded-lg max-w-md text-xs font-mono z-30">
+           <h3 className="text-yellow-400 mb-2">🎯 Performance Debug</h3>
+           <div className="space-y-1">
+             <div>Total Requests: {performanceMetrics.totalRequests}</div>
+             <div>Avg Response: {performanceMetrics.averageResponseTime.toFixed(0)}ms</div>
+             <div>Avg Transcription: {performanceMetrics.transcriptionTimes.length > 0 ? (performanceMetrics.transcriptionTimes.reduce((a, b) => a + b, 0) / performanceMetrics.transcriptionTimes.length).toFixed(0) : 0}ms</div>
+             <div>Avg OpenAI: {performanceMetrics.openaiTimes.length > 0 ? (performanceMetrics.openaiTimes.reduce((a, b) => a + b, 0) / performanceMetrics.openaiTimes.length).toFixed(0) : 0}ms</div>
+             <div>Avg Avatar Speak: {performanceMetrics.avatarSpeakTimes.length > 0 ? (performanceMetrics.avatarSpeakTimes.reduce((a, b) => a + b, 0) / performanceMetrics.avatarSpeakTimes.length).toFixed(0) : 0}ms</div>
+             <div>Cache Size: {responseCache.current.size}</div>
+             <div>Preloaded: {preloadedResponses.current.size}</div>
+             <div className="text-gray-400 text-xs">Last Update: {new Date().toLocaleTimeString()}</div>
+           </div>
+           <button
+             onClick={logPerformanceSummary}
+             className="mt-2 bg-green-500 hover:bg-green-600 px-2 py-1 rounded text-xs"
+           >
+             Log Summary
+           </button>
         </div>
       )}
 
