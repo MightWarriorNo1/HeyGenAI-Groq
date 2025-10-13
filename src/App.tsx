@@ -31,6 +31,16 @@ function App() {
   const mediaStream = useRef<HTMLVideoElement>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
 
+  // Image/Video analysis conversation state
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [analysisStep, setAnalysisStep] = useState<'upload' | 'question' | 'analysis' | 'complete'>('upload');
+  const [userQuestion, setUserQuestion] = useState<string>('');
+  const [analysisContext, setAnalysisContext] = useState<{
+    file: File;
+    userQuestion: string;
+    analysisResult: string;
+  } | null>(null);
+
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
@@ -41,7 +51,6 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
-  const [showDebugPanel, setShowDebugPanel] = useState<boolean>(false);
   
   // Preloaded responses for common queries to reduce API calls
   const preloadedResponses = useRef<Map<string, string>>(new Map([
@@ -117,25 +126,7 @@ function App() {
     }
   };
 
-  
-  // Function to update volume level
-  const updateVolume = (newVolume: number) => {
-    setVolumeLevel(newVolume);
-    
-    // Simple approach: just set the video volume
-    if (mediaStream.current) {
-      mediaStream.current.volume = Math.min(newVolume, 1.0);
-      console.log(`Video volume set to: ${mediaStream.current.volume}`);
-    }
-    
-    // Also try to boost using Web Audio API if available
-    if (audioContextRef.current && gainNodeRef.current) {
-      gainNodeRef.current.gain.value = newVolume;
-      console.log(`Gain node set to: ${newVolume}`);
-    }
-    
-    console.log(`Volume updated to: ${newVolume}x`);
-  };
+
 
   // Pre-warm avatar for faster response
   const preWarmAvatarForResponse = async () => {
@@ -227,10 +218,10 @@ function App() {
       console.error('Error generating dynamic buttons:', error);
       // Fallback to default buttons
       setDynamicButtons([
-        "🤔 Mind-Bending Mysteries",
-        "💰 Money Magic & Mayhem", 
-        "💕 Love & Laughter Therapy",
-        "🎭 Life's Comedy Coach"
+        "Mind-Bending Mysteries",
+        "Money Magic & Mayhem", 
+        "Love & Laughter Therapy",
+        "Life's Comedy Coach"
       ]);
     }
   };
@@ -359,7 +350,7 @@ function App() {
     }
   };
 
-  // Function to handle file upload
+  // Function to handle file upload with interactive voice chat
   const handleFileUpload = async (file: File) => {
     try {
       // Show success message
@@ -368,6 +359,38 @@ function App() {
         description: `File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`,
       });
 
+      // Store the uploaded file and set up for interactive analysis
+      setUploadedFile(file);
+      setAnalysisStep('question');
+      
+      // Ask what help the user needs first
+      const questionPrompt = `I see you've uploaded a ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}. What would you like me to help you with? Please tell me what you need assistance with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}.`;
+      
+      setInput(questionPrompt);
+      
+    } catch (error: any) {
+      console.error('Error processing file:', error);
+      toast({
+        variant: "destructive",
+        title: "Uh oh! Something went wrong.",
+        description: error.message,
+      });
+    }
+  };
+
+  // Function to reset analysis state
+  const resetAnalysisState = () => {
+    setUploadedFile(null);
+    setAnalysisStep('upload');
+    setUserQuestion('');
+    setAnalysisContext(null);
+  };
+
+  // Function to process file analysis based on user's question
+  const processFileAnalysis = async (file: File, userQuestion: string) => {
+    try {
+      console.log('🎯 [DEBUG] Starting file analysis with user question:', userQuestion);
+      
       let aiResponse;
 
       if (file.type.startsWith('image/')) {
@@ -387,11 +410,15 @@ function App() {
           model: 'gpt-4o',
           messages: [
             {
+              role: 'system',
+              content: 'You are a helpful AI assistant that analyzes images based on user questions. Provide detailed, accurate, and helpful responses. Be conversational and engaging.'
+            },
+            {
               role: 'user',
               content: [
                 {
                   type: 'text',
-                  text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
+                  text: `The user asked: "${userQuestion}". Please analyze this image and provide a detailed response based on their specific question.`
                 },
                 {
                   type: 'image_url',
@@ -434,11 +461,15 @@ function App() {
           model: 'gpt-4o',
           messages: [
             {
+              role: 'system',
+              content: 'You are a helpful AI assistant that analyzes video frames based on user questions. Provide detailed, accurate, and helpful responses. Be conversational and engaging.'
+            },
+            {
               role: 'user',
               content: [
                 {
                   type: 'text',
-                  text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
+                  text: `The user asked: "${userQuestion}". Please analyze this video frame from "${file.name}" and provide a detailed response based on their specific question.`
                 },
                 {
                   type: 'image_url',
@@ -457,7 +488,7 @@ function App() {
       } else if (file.type.startsWith('text/')) {
         // Handle text files
         const fileContent = await file.text();
-        const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
+        const prompt = `The user asked: "${userQuestion}". I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights based on their specific question.`;
         
         aiResponse = await openai.chat.completions.create({
           model: 'gpt-4',
@@ -468,7 +499,7 @@ function App() {
 
       } else {
         // For other file types, provide basic analysis
-        const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
+        const prompt = `The user asked: "${userQuestion}". I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance based on their specific question.`;
         
         aiResponse = await openai.chat.completions.create({
           model: 'gpt-4',
@@ -478,10 +509,182 @@ function App() {
         });
       }
       
-      setInput(aiResponse.choices[0].message.content || '');
+      const analysisResult = aiResponse.choices[0].message.content || '';
+      
+      // Store the analysis context
+      setAnalysisContext({
+        file,
+        userQuestion,
+        analysisResult
+      });
+      
+      // Set the analysis result as input for avatar to speak
+      setInput(analysisResult);
+      setAnalysisStep('complete');
+      
+      // Update conversation history
+      const updatedHistory = [...conversationHistory, { role: 'user', content: userQuestion }];
+      const limitedHistory = updatedHistory.slice(-4);
+      setConversationHistory(limitedHistory);
+      
+      const finalHistory = [...limitedHistory, { role: 'assistant', content: analysisResult }];
+      setConversationHistory(finalHistory);
+      
+      // Generate dynamic buttons in background
+      generateDynamicButtons(finalHistory).catch(error => {
+        console.warn('Dynamic buttons generation failed:', error);
+      });
       
     } catch (error: any) {
-      console.error('Error processing file:', error);
+      console.error('Error processing file analysis:', error);
+      toast({
+        variant: "destructive",
+        title: "Uh oh! Something went wrong.",
+        description: error.message,
+      });
+      
+      // Reset analysis state on error
+      setAnalysisStep('upload');
+      setUploadedFile(null);
+      setUserQuestion('');
+      setAnalysisContext(null);
+    }
+  };
+
+  // Function to process follow-up questions after analysis
+  const processFollowUpQuestion = async (followUpQuestion: string, context: { file: File; userQuestion: string; analysisResult: string }) => {
+    try {
+      console.log('🎯 [DEBUG] Processing follow-up question:', followUpQuestion);
+      
+      let aiResponse;
+
+      if (context.file.type.startsWith('image/')) {
+        // Handle images with GPT-4 Vision for follow-up
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.readAsDataURL(context.file);
+        });
+
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a helpful AI assistant that answers follow-up questions about previously analyzed images. Provide detailed, accurate, and helpful responses. Be conversational and engaging.'
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Previous analysis context: "${context.analysisResult}". The user now asks: "${followUpQuestion}". Please provide a detailed response based on the image and the previous analysis.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${context.file.type};base64,${base64}`
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 1000
+        });
+
+      } else if (context.file.type.startsWith('video/')) {
+        // Handle videos for follow-up
+        const video = document.createElement('video');
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const videoUrl = URL.createObjectURL(context.file);
+        video.src = videoUrl;
+        
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.currentTime = 1;
+          };
+          video.onseeked = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx?.drawImage(video, 0, 0);
+            resolve(null);
+          };
+        });
+
+        const frameBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
+        
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a helpful AI assistant that answers follow-up questions about previously analyzed videos. Provide detailed, accurate, and helpful responses. Be conversational and engaging.'
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Previous analysis context: "${context.analysisResult}". The user now asks: "${followUpQuestion}". Please provide a detailed response based on the video frame and the previous analysis.`
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:image/jpeg;base64,${frameBase64}`
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 1000
+        });
+
+        URL.revokeObjectURL(videoUrl);
+
+      } else {
+        // Handle other file types for follow-up
+        const prompt = `Previous analysis context: "${context.analysisResult}". The user now asks: "${followUpQuestion}". Please provide a detailed response based on the file "${context.file.name}" and the previous analysis.`;
+        
+        aiResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
+          messages: [
+            { role: 'user', content: prompt }
+          ]
+        });
+      }
+      
+      const followUpResult = aiResponse.choices[0].message.content || '';
+      
+      // Update the analysis context with the new result
+      setAnalysisContext({
+        ...context,
+        analysisResult: followUpResult
+      });
+      
+      // Set the follow-up result as input for avatar to speak
+      setInput(followUpResult);
+      
+      // Update conversation history
+      const updatedHistory = [...conversationHistory, { role: 'user', content: followUpQuestion }];
+      const limitedHistory = updatedHistory.slice(-4);
+      setConversationHistory(limitedHistory);
+      
+      const finalHistory = [...limitedHistory, { role: 'assistant', content: followUpResult }];
+      setConversationHistory(finalHistory);
+      
+      // Generate dynamic buttons in background
+      generateDynamicButtons(finalHistory).catch(error => {
+        console.warn('Dynamic buttons generation failed:', error);
+      });
+      
+    } catch (error: any) {
+      console.error('Error processing follow-up question:', error);
       toast({
         variant: "destructive",
         title: "Uh oh! Something went wrong.",
@@ -528,6 +731,26 @@ function App() {
       });
 
       const transcription = transcriptionResponse.text;
+      
+      // Handle interactive analysis flow
+      if (analysisStep === 'question' && uploadedFile) {
+        console.log('🎯 [DEBUG] Processing user question for file analysis');
+        setUserQuestion(transcription);
+        setAnalysisStep('analysis');
+        
+        // Process the analysis based on user's question
+        await processFileAnalysis(uploadedFile, transcription);
+        return;
+      }
+      
+      // Handle follow-up questions after analysis is complete
+      if (analysisStep === 'complete' && analysisContext) {
+        console.log('🎯 [DEBUG] Processing follow-up question for completed analysis');
+        
+        // Process follow-up question with context
+        await processFollowUpQuestion(transcription, analysisContext);
+        return;
+      }
       
       // Check preloaded responses first for instant response
       const preloadCheckStart = performance.now();
@@ -586,6 +809,11 @@ function App() {
           console.warn('Dynamic buttons generation failed:', error);
         });
         return;
+      }
+      
+      // Reset analysis state if user starts a new conversation
+      if (analysisStep !== 'upload') {
+        resetAnalysisState();
       }
       
       // Update conversation history with limited size for faster processing
@@ -887,10 +1115,10 @@ async function grab() {
     
     // Initialize UI components immediately
     setDynamicButtons([
-      "🤔 Mind-Bending Mysteries",
-      "💰 Money Magic & Mayhem", 
-      "💕 Love & Laughter Therapy",
-      "🎭 Life's Comedy Coach"
+      "Mind-Bending Mysteries",
+      "Money Magic & Mayhem", 
+      "Love & Laughter Therapy",
+      "Life's Comedy Coach"
     ]);
     
     setLoadingProgress(100);
@@ -1347,13 +1575,13 @@ return (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-20">
           <div className="text-white text-center max-w-md mx-auto p-6">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-6"></div>
-            <div className="text-2xl mb-4">🎭 Getting my funny face ready...</div>
+            <div className="text-2xl mb-4">Getting my funny face ready...</div>
             
             
             <div className="text-sm opacity-75">
-              {loadingProgress < 50 ? "Preparing jokes and witty comebacks! 😄" : 
+              {loadingProgress < 50 ? "Preparing jokes and witty comebacks! " : 
                loadingProgress < 80 ? "Setting up the stage for comedy! 🎪" :
-               "Almost ready to entertain! 🎭"}
+               "Almost ready to entertain!"}
             </div>
             
             <div className="text-xs mt-2 opacity-50">
@@ -1363,58 +1591,10 @@ return (
         </div>
       )}
 
-       {/* Debug Panel Toggle */}
-       <button
-         onClick={() => setShowDebugPanel(!showDebugPanel)}
-         className="absolute top-4 left-4 bg-blue-500/80 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-mono z-30"
-       >
-         {showDebugPanel ? 'Hide Debug' : 'Show Debug'}
-       </button>
-
-       {/* Debug Panel */}
-       {showDebugPanel && (
-         <div className="absolute top-16 left-4 bg-black/90 text-white p-4 rounded-lg max-w-md text-xs font-mono z-30">
-           <h3 className="text-yellow-400 mb-2">🎯 Performance Debug</h3>
-           <div className="space-y-1">
-             <div>Total Requests: {performanceMetrics.totalRequests}</div>
-             <div>Avg Response: {performanceMetrics.averageResponseTime.toFixed(0)}ms</div>
-             <div>Avg Transcription: {performanceMetrics.transcriptionTimes.length > 0 ? (performanceMetrics.transcriptionTimes.reduce((a, b) => a + b, 0) / performanceMetrics.transcriptionTimes.length).toFixed(0) : 0}ms</div>
-             <div>Avg OpenAI: {performanceMetrics.openaiTimes.length > 0 ? (performanceMetrics.openaiTimes.reduce((a, b) => a + b, 0) / performanceMetrics.openaiTimes.length).toFixed(0) : 0}ms</div>
-             <div>Avg Avatar Speak: {performanceMetrics.avatarSpeakTimes.length > 0 ? (performanceMetrics.avatarSpeakTimes.reduce((a, b) => a + b, 0) / performanceMetrics.avatarSpeakTimes.length).toFixed(0) : 0}ms</div>
-             <div>Cache Size: {responseCache.current.size}</div>
-             <div>Preloaded: {preloadedResponses.current.size}</div>
-             <div className="text-gray-400 text-xs">Last Update: {new Date().toLocaleTimeString()}</div>
-           </div>
-           <button
-             onClick={logPerformanceSummary}
-             className="mt-2 bg-green-500 hover:bg-green-600 px-2 py-1 rounded text-xs"
-           >
-             Log Summary
-           </button>
-        </div>
-      )}
-
       {/* Controls overlay at bottom - only show after session starts */}
       {isSessionStarted && (
         <div className='absolute bottom-0 left-0 right-0 flex flex-col justify-center p-2 z-10'>
           <div className="w-full max-w-4xl mx-auto">
-            {/* Volume Control */}
-            <div className="mb-4 flex items-center justify-center space-x-3 bg-black/50 rounded-lg p-3">
-              <span className="text-white text-sm">🔊 Volume:</span>
-              <input
-                type="range"
-                min="0.5"
-                max="5.0"
-                step="0.1"
-                value={volumeLevel}
-                onChange={(e) => updateVolume(parseFloat(e.target.value))}
-                className="w-32 h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((volumeLevel - 0.5) / 4.5) * 100}%, #d1d5db ${((volumeLevel - 0.5) / 4.5) * 100}%, #d1d5db 100%)`
-                }}
-              />
-              <span className="text-white text-sm font-mono">{volumeLevel.toFixed(1)}x</span>
-            </div>
             <Suspense fallback={<div className="h-12 bg-gray-200 animate-pulse rounded-lg mb-4"></div>}>
               <Badges
                 setSelectedPrompt={setSelectedPrompt}
