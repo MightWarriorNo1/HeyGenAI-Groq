@@ -7,6 +7,8 @@ import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
 import { Toaster } from "@/components/ui/toaster";
 import { createApiCall, handleApiError } from './utils/api-helpers';
+import { Button } from "@/components/ui/button";
+import { Camera, Paperclip } from "lucide-react";
 
 // Lazy load heavy components for faster initial load
 const Badges = lazy(() => import('./components/reusable/Badges').then(module => ({ default: module.Badges })));
@@ -58,6 +60,9 @@ function App() {
   const [currentMediaAnalysis, setCurrentMediaAnalysis] = useState<string>('');
   const [hasMediaContext, setHasMediaContext] = useState<boolean>(false);
   const [mediaFileName, setMediaFileName] = useState<string>('');
+  
+  // Drag and drop state
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   
   // Persistent media context using refs to survive re-renders
   const mediaContextRef = useRef<{
@@ -296,6 +301,43 @@ function App() {
     }
   };
 
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileUpload(files[0]);
+    }
+  };
+
+  // Function to clear media context
+  const clearMediaContext = () => {
+    setCurrentMediaAnalysis('');
+    setHasMediaContext(false);
+    setMediaFileName('');
+    mediaContextRef.current = {
+      analysis: '',
+      fileName: '',
+      hasContext: false
+    };
+    toast({
+      title: "📎 Context cleared",
+      description: "I'm ready for a new file or conversation!",
+    });
+  };
+
   // Function to handle file upload
   const handleFileUpload = async (file: File) => {
     try {
@@ -310,10 +352,21 @@ function App() {
       //   return;
       // }
 
-      // Show success message
+      // Show natural, conversational loading messages
+      const fileTypeMessages = {
+        'image': "👀 Taking a look at your image...",
+        'video': "🎬 Analyzing your video...", 
+        'text': "📖 Reading through your document...",
+        'default': "🔍 Examining your file..."
+      };
+      
+      const fileType = file.type.startsWith('image/') ? 'image' : 
+                      file.type.startsWith('video/') ? 'video' : 
+                      file.type.startsWith('text/') ? 'text' : 'default';
+      
       toast({
-        title: "File uploaded successfully!",
-        description: `File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`,
+        title: fileTypeMessages[fileType],
+        description: `Just a moment while I process ${file.name}...`,
       });
 
       let aiResponse;
@@ -463,8 +516,8 @@ function App() {
         if (fileContent.length > maxTextLength) {
           toast({
             variant: "destructive",
-            title: "Text file too large",
-            description: `Text files must be smaller than 50KB. Current: ${(fileContent.length / 1024).toFixed(1)}KB`,
+            title: "📄 File too large",
+            description: `That document is quite long! Please keep it under 50KB (currently ${(fileContent.length / 1024).toFixed(1)}KB)`,
           });
           return;
         }
@@ -519,7 +572,20 @@ function App() {
         console.log('🔍 Ref after setting:', mediaContextRef.current);
       }, 100);
       
-      // Make avatar ask what help the user needs
+      // Natural, conversational success messages
+      const successMessages = {
+        'image': "🖼️ Great! I can see your image clearly. What would you like to know about it?",
+        'video': "🎬 Perfect! I've analyzed your video. What caught your attention in it?",
+        'text': "📖 I've read through your document. What would you like to discuss about it?",
+        'default': "📎 I've examined your file. How can I help you with it?"
+      };
+      
+      toast({
+        title: successMessages[fileType],
+        description: `Ready to chat about ${file.name}!`,
+      });
+      
+      // Make avatar ask what help the user needs in a natural way
       const helpPrompt = `I've analyzed your ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'} "${file.name}". What would you like me to help you with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}? I can provide insights, answer questions, or help you with anything related to what I found in it.`;
       
       setInput(helpPrompt);
@@ -529,8 +595,8 @@ function App() {
       const errorInfo = handleApiError(error);
       toast({
         variant: "destructive",
-        title: errorInfo.title,
-        description: errorInfo.description,
+        title: "Hmm, that didn't work",
+        description: "I couldn't process that file. Mind trying a different one?",
       });
     }
   };
@@ -581,6 +647,25 @@ function App() {
         });
         return;
       }
+
+      // Check if user is asking about vision/camera analysis
+      const visionKeywords = [
+        'what do you see', 'what can you see', 'describe what you see', 'analyze', 'look at',
+        'camera', 'vision', 'see', 'watching', 'observe', 'describe', 'tell me about',
+        'what is that', 'what are you looking at', 'can you see', 'do you see'
+      ];
+      
+      const transcriptionLower = transcription.toLowerCase();
+      const isVisionRequest = visionKeywords.some(keyword => 
+        transcriptionLower.includes(keyword)
+      );
+
+      // If user is asking about vision and camera is active, trigger analysis
+      if (isVisionRequest && isCameraActive && cameraVideoRef.current) {
+        console.log('👁️ User is asking about vision! Let me analyze what I see...');
+        handleVisionAnalysis(transcription);
+        return; // Don't process as regular conversation
+      }
       
       // Check cache first for faster response (but skip cache if media context is active)
       const cacheKey = transcription.toLowerCase().trim();
@@ -625,9 +710,16 @@ function App() {
           currentMediaAnalysis,
           refContext: mediaContextRef.current
         });
+        
+        // Create a more natural, conversational context message
+        const fileType = effectiveFileName.split('.').pop()?.toLowerCase();
+        const mediaType = fileType && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileType) ? 'image' :
+                         fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
+                         fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
+        
         messages.push({
           role: 'assistant',
-          content: `I've analyzed your ${effectiveFileName}. Here's what I found: ${effectiveAnalysis}`
+          content: `I've been looking at your ${mediaType} "${effectiveFileName}". Here's what I noticed: ${effectiveAnalysis}\n\nFeel free to ask me anything about it - I'm here to help you understand or work with this ${mediaType}!`
         });
       } else {
         console.log('❌ No media context', { 
@@ -843,6 +935,22 @@ async function grab() {
     ]).catch(error => {
       console.warn('Background initialization failed:', error);
     });
+    
+    // Add initial greeting message after a longer delay to ensure avatar is fully ready
+    setTimeout(async () => {
+      try {
+        console.log('🎭 Avatar greeting: Starting initial greeting...');
+        await avatar.current!.speak({ 
+          taskRequest: { 
+            text: "Hello My name is 6, your personal assistant. How can I help you today?", 
+            sessionId: res.sessionId 
+          } 
+        });
+        console.log('🎭 Avatar greeting: Greeting completed successfully');
+      } catch (error) {
+        console.warn('Initial greeting failed:', error);
+      }
+    }, 3000); // 3 second delay to ensure avatar is fully ready and pre-warm is complete
 
   } catch (error: any) {
     console.error('Avatar initialization failed:', error.message);
@@ -927,16 +1035,12 @@ const handleCameraClick = async () => {
       setCameraStream(stream);
       setIsCameraActive(true);
       
-      // Start periodic analysis every 8 seconds (less frequent to avoid overwhelming)
-      analysisIntervalRef.current = setInterval(() => {
-        if (cameraVideoRef.current && !isAnalyzing && !isAvatarSpeaking) {
-          handleMotionStopped(); // Trigger analysis
-        }
-      }, 8000);
+      // Camera is now passive - only analyzes when user asks something
+      // No automatic analysis interval
       
       toast({
         title: "📸 Camera Activated!",
-        description: "I'm now watching and ready to analyze what you're up to! 😄",
+        description: "I'm now watching! Ask me 'what do you see?' or 'describe what you see' to analyze! 👁️",
       });
     } catch (error) {
       console.error('Error accessing camera:', error);
@@ -1045,6 +1149,93 @@ const handleMotionStopped = async () => {
   }
 };
 
+// Handle vision analysis when user asks about what they see
+const handleVisionAnalysis = async (userQuestion: string) => {
+  if (isAnalyzing || isAvatarSpeaking) return; // Prevent analysis while avatar is speaking or already analyzing
+  
+  console.log('🎭 User asked about vision! Let me analyze what I see...');
+  setIsAnalyzing(true);
+  
+  try {
+    // Capture current frame for analysis
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!cameraVideoRef.current || !ctx) return;
+    
+    canvas.width = cameraVideoRef.current.videoWidth;
+    canvas.height = cameraVideoRef.current.videoHeight;
+    ctx.drawImage(cameraVideoRef.current, 0, 0);
+    
+    // Convert to base64 for OpenAI Vision API
+    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // Analyze with OpenAI Vision using conversational approach
+    const response = await createApiCall(
+      async () => {
+        const stream = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `You are a helpful AI assistant that analyzes images in a natural, conversational way. When someone asks you about what you see, respond as if you're having a normal conversation with them. Be friendly, descriptive, and helpful. Keep responses conversational and under 200 words.`
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `The user asked: "${userQuestion}". Please analyze this image and respond naturally to their question. Describe what you see in a conversational way that directly answers their question.`
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageData
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 300,
+          stream: true
+        });
+        
+        // Process the stream and return the full response
+        let fullResponse = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content;
+          if (content) {
+            fullResponse += content;
+          }
+        }
+        return { choices: [{ message: { content: fullResponse } }] } as any;
+      },
+      { timeout: 45000, retries: 2 }
+    );
+    
+    const analysis = response.choices[0].message.content || '';
+    
+    // Add the analysis to the queue for avatar speech
+    if (analysis.trim()) {
+      analysisQueueRef.current.push(analysis.trim());
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
+      }
+    }
+    
+    console.log('👁️ Vision analysis response:', analysis);
+    
+  } catch (error) {
+    console.error('Error analyzing vision:', error);
+    toast({
+      variant: "destructive",
+      title: "Vision Analysis Error",
+      description: "Sorry, I couldn't analyze what I see right now. Please try again.",
+    });
+  } finally {
+    setIsAnalyzing(false);
+  }
+};
+
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
@@ -1069,9 +1260,16 @@ useEffect(() => {
         currentMediaAnalysis,
         refContext: mediaContextRef.current
       });
+      
+      // Create a more natural, conversational context message
+      const fileType = effectiveFileName.split('.').pop()?.toLowerCase();
+      const mediaType = fileType && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileType) ? 'image' :
+                       fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
+                       fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
+      
       messages.push({
         role: 'assistant',
-        content: `I've analyzed your ${effectiveFileName}. Here's what I found: ${effectiveAnalysis}`
+        content: `I've been looking at your ${mediaType} "${effectiveFileName}". Here's what I noticed: ${effectiveAnalysis}\n\nFeel free to ask me anything about it - I'm here to help you understand or work with this ${mediaType}!`
       });
     } else {
       console.log('❌ No media context for button', { 
@@ -1236,7 +1434,14 @@ if (!isSessionStarted && !startLoading && !startAvatarLoading) {
 return (
   <>
     <Toaster />
-    <div className="h-screen w-screen relative overflow-hidden">
+    <div 
+      className={`h-screen w-screen relative overflow-hidden transition-all duration-300 ${
+        isDragOver ? 'ring-4 ring-blue-400 ring-opacity-50 bg-blue-900/20' : ''
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Brand Header */}
       <Suspense fallback={<div className="h-16 bg-gray-100 animate-pulse"></div>}>
         <BrandHeader />
@@ -1306,6 +1511,125 @@ return (
         </div>
       )}
 
+      {/* Camera and Paper clip buttons - positioned above avatar's hands */}
+      {isSessionStarted && (
+        <div className="absolute top-2/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex gap-4 z-20">
+          <Button
+            variant="outline"
+            size="icon"
+            className={`h-12 w-20 ${
+              isCameraActive 
+                ? 'bg-red-600/80 border-red-500 text-white hover:bg-red-700/80 shadow-lg' 
+                : 'bg-amber-700/80 border-amber-600 text-amber-100 hover:bg-amber-800/80 shadow-lg'
+            }`}
+            style={{
+              borderRadius: '50px',
+              border: '4px solid #8B4513',
+              borderTop: '4px solid #8B4513',
+              borderBottom: '4px solid #8B4513',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onClick={handleCameraClick}
+          >
+            <div 
+              style={{
+                position: 'absolute',
+                top: '-4px',
+                left: '-4px',
+                right: '-4px',
+                bottom: '-4px',
+                border: '2px solid #2D2D2D',
+                borderRadius: '50px',
+                pointerEvents: 'none'
+              }}
+            />
+            <div 
+              style={{
+                position: 'absolute',
+                top: '-2px',
+                left: '-2px',
+                right: '-2px',
+                bottom: '-2px',
+                border: '1px solid #C0C0C0',
+                borderRadius: '50px',
+                pointerEvents: 'none'
+              }}
+            />
+            <Camera className="h-6 w-6" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={`h-12 w-20 shadow-lg transition-all duration-300 hover:scale-110 ${
+              hasMediaContext 
+                ? 'bg-green-600/80 border-green-500 text-white hover:bg-green-700/80' 
+                : 'bg-amber-700/80 border-amber-600 text-amber-100 hover:bg-amber-800/80'
+            }`}
+            style={{
+              borderRadius: '50px',
+              border: '4px solid #8B4513',
+              borderTop: '4px solid #8B4513',
+              borderBottom: '4px solid #8B4513',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onClick={() => {
+              const fileInput = document.createElement('input');
+              fileInput.type = 'file';
+              fileInput.accept = '.txt,.pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.mp4,.mov,.avi,.mkv,.webm';
+              fileInput.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (file) handleFileUpload(file);
+              };
+              fileInput.click();
+            }}
+            title={hasMediaContext ? `Currently analyzing: ${mediaFileName}` : "Upload a file to discuss"}
+          >
+            <div 
+              style={{
+                position: 'absolute',
+                top: '-4px',
+                left: '-4px',
+                right: '-4px',
+                bottom: '-4px',
+                border: '2px solid #2D2D2D',
+                borderRadius: '50px',
+                pointerEvents: 'none'
+              }}
+            />
+            <div 
+              style={{
+                position: 'absolute',
+                top: '-2px',
+                left: '-2px',
+                right: '-2px',
+                bottom: '-2px',
+                border: '1px solid #C0C0C0',
+                borderRadius: '50px',
+                pointerEvents: 'none'
+              }}
+            />
+            <Paperclip className={`h-6 w-6 transition-transform duration-200 ${hasMediaContext ? 'animate-pulse' : ''}`} />
+          </Button>
+        </div>
+      )}
+
+      {/* Drag and drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white/90 dark:bg-gray-800/90 rounded-lg p-8 text-center shadow-2xl">
+            <Paperclip className="h-16 w-16 mx-auto mb-4 text-blue-500 animate-bounce" />
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">
+              Drop your file here!
+            </h3>
+            <p className="text-gray-600 dark:text-gray-300">
+              I'll analyze it and we can chat about it
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Controls overlay at bottom - only show after session starts */}
       {isSessionStarted && (
         <div className='absolute bottom-0 left-0 right-0 flex flex-col justify-center p-2 z-10'>
@@ -1319,9 +1643,10 @@ return (
                 dynamicButtons={dynamicButtons}
                 hasMediaContext={hasMediaContext}
                 mediaFileName={mediaFileName}
+                onClearContext={clearMediaContext}
               />
             </Suspense>
-            <Suspense fallback={<div className="h-16 bg-gray-200 animate-pulse rounded-full"></div>}>
+            {/* <Suspense fallback={<div className="h-16 bg-gray-200 animate-pulse rounded-full"></div>}>
               <MicButton
                 isSpeaking={isSpeaking}
                 onClick={isSpeaking ? handleStopSpeaking : handleStartSpeaking}
@@ -1330,7 +1655,7 @@ return (
                 avatarStartLoading={startAvatarLoading}
                 avatarStopLoading={stopAvatarLoading}
               />
-            </Suspense>
+            </Suspense> */}
           </div>
         </div>
       )}
