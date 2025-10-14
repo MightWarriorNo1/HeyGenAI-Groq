@@ -154,19 +154,6 @@ function App() {
     }
   };
 
-  // Function to clear media context
-  const clearMediaContext = () => {
-    console.log('🧹 Clearing media context');
-    setCurrentMediaAnalysis('');
-    setHasMediaContext(false);
-    setMediaFileName('');
-    // Also clear the ref
-    mediaContextRef.current = {
-      analysis: '',
-      fileName: '',
-      hasContext: false
-    };
-  };
 
   // Function to generate dynamic buttons based on conversation context
   const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
