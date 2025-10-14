@@ -13,7 +13,7 @@ interface BadgeProps {
     onClearContext?: () => void;
 }
 
-export const Badges: React.FC<BadgeProps> = ({ hasMediaContext, mediaFileName, onClearContext }) => {
+export const Badges: React.FC<BadgeProps> = ({ hasMediaContext, onClearContext }) => {
 
     return (
         <div className="flex flex-col items-center gap-4 mt-3 px-2 w-full">

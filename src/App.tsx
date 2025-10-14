@@ -13,7 +13,6 @@ import { Camera, Paperclip } from "lucide-react";
 // Lazy load heavy components for faster initial load
 const Badges = lazy(() => import('./components/reusable/Badges').then(module => ({ default: module.Badges })));
 const BrandHeader = lazy(() => import('./components/reusable/BrandHeader'));
-const MicButton = lazy(() => import('./components/reusable/MicButton'));
 const CameraVideo = lazy(() => import('./components/reusable/CameraVideo').then(module => ({ default: module.CameraVideo })));
 
 
@@ -23,7 +22,6 @@ function App() {
 
   const [startLoading, setStartLoading] = useState<boolean>(false);
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [input, setInput] = useState<string>('');
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([]);
   const [dynamicButtons, setDynamicButtons] = useState<string[]>([]);
@@ -35,7 +33,6 @@ function App() {
   const avatar = useRef<StreamingAvatarApi | null>(null);
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
-  const [stopAvatarLoading, setStopAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<number>(0);
   
@@ -253,7 +250,6 @@ function App() {
             };
 
             mediaRecorder.current.start();
-            setIsSpeaking(true);
           } else if (avgVolume < voiceThreshold && isRecording) {
             // Voice stopped, check for silence
             if (!silenceStart) silenceStart = Date.now();
@@ -263,7 +259,6 @@ function App() {
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
-              setIsSpeaking(false);
               isRecording = false;
               silenceStart = null;
             }
@@ -288,18 +283,6 @@ function App() {
       });
   };
 
-  //Function when user starts speaking (kept for mic button compatibility)
-  const handleStartSpeaking = () => {
-    startContinuousListening();
-  };
-
-  const handleStopSpeaking = async () => {
-    if (mediaRecorder.current) {
-      mediaRecorder.current.stop();
-      mediaRecorder.current = null;
-      setIsSpeaking(false);
-    }
-  };
 
   // Drag and drop handlers
   const handleDragOver = (e: React.DragEvent) => {
@@ -592,7 +575,6 @@ function App() {
       
     } catch (error: any) {
       console.error('Error processing file:', error);
-      const errorInfo = handleApiError(error);
       toast({
         variant: "destructive",
         title: "Hmm, that didn't work",
@@ -965,22 +947,6 @@ async function grab() {
   }
 };
 
-//Function to stop the avatar
-async function stop() {
-  setStopAvatarLoading(true);
-  try {
-    await avatar.current?.stopAvatar({ stopSessionRequest: { sessionId: data?.sessionId } });
-    setStopAvatarLoading(false);
-    avatar.current = null;
-  } catch (error: any) {
-    setStopAvatarLoading(false);
-    toast({
-      variant: "destructive",
-      title: "Uh oh! Something went wrong.",
-      description: error.response.data.message || error.message,
-    })
-  }
-}
 
 // Camera functions
 const handleCameraClick = async () => {
