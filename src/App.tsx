@@ -1,11 +1,12 @@
 /*eslint-disable*/
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef, useState, lazy, Suspense, useCallback } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
-import { Toaster } from "@/components/ui/toaster"
+import { Toaster } from "@/components/ui/toaster";
+import { createApiCall, handleApiError } from './utils/api-helpers';
 
 // Lazy load heavy components for faster initial load
 const Badges = lazy(() => import('./components/reusable/Badges').then(module => ({ default: module.Badges })));
@@ -41,37 +42,11 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
-  
-  // Preloaded responses for common queries to reduce API calls
-  const preloadedResponses = useRef<Map<string, string>>(new Map([
-    ['hello', 'Hey there! Great to see you! What can I help you with today?'],
-    ['hi', 'Hi! How are you doing? I\'m here to chat!'],
-    ['how are you', 'I\'m doing fantastic! Thanks for asking. How about you?'],
-    ['what can you do', 'I can chat, tell jokes, help with questions, and just be your friendly AI companion!'],
-    ['thank you', 'You\'re very welcome! Happy to help anytime!'],
-    ['bye', 'See you later! It was great chatting with you!']
-  ]));
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   
   // Pre-warm avatar for faster response
   const preWarmAvatar = useRef<boolean>(false);
   const smallAvatarRef = useRef<HTMLVideoElement>(null);
-  
-  // Pre-warm avatar with a simple greeting to reduce first response time
-  const preWarmAvatarResponse = useCallback(() => {
-    if (!preWarmAvatar.current && avatar.current && data?.sessionId) {
-      preWarmAvatar.current = true;
-      // Send a silent pre-warm message
-      avatar.current.speak({ 
-        taskRequest: { 
-          text: "Hello", 
-          sessionId: data.sessionId 
-        } 
-      }).catch(() => {
-        // Ignore pre-warm errors
-      });
-    }
-  }, [avatar, data?.sessionId]);
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
@@ -79,24 +54,21 @@ function App() {
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
   
-  // Performance tracking - using state for real-time UI updates
-  const [performanceMetrics, setPerformanceMetrics] = useState({
-    totalRequests: 0,
-    averageResponseTime: 0,
-    transcriptionTimes: [] as number[],
-    openaiTimes: [] as number[],
-    avatarSpeakTimes: [] as number[]
-  });
+  // Media analysis state
+  const [currentMediaAnalysis, setCurrentMediaAnalysis] = useState<string>('');
+  const [hasMediaContext, setHasMediaContext] = useState<boolean>(false);
+  const [mediaFileName, setMediaFileName] = useState<string>('');
   
-  // Function to log performance summary
-  const logPerformanceSummary = () => {
-    console.log('📊 [PERFORMANCE SUMMARY]');
-    console.log(`📊 Total requests: ${performanceMetrics.totalRequests}`);
-    console.log(`📊 Average response time: ${performanceMetrics.averageResponseTime.toFixed(2)}ms`);
-    console.log(`📊 Average transcription time: ${performanceMetrics.transcriptionTimes.length > 0 ? (performanceMetrics.transcriptionTimes.reduce((a, b) => a + b, 0) / performanceMetrics.transcriptionTimes.length).toFixed(2) : 0}ms`);
-    console.log(`📊 Average OpenAI time: ${performanceMetrics.openaiTimes.length > 0 ? (performanceMetrics.openaiTimes.reduce((a, b) => a + b, 0) / performanceMetrics.openaiTimes.length).toFixed(2) : 0}ms`);
-    console.log(`📊 Average avatar speak time: ${performanceMetrics.avatarSpeakTimes.length > 0 ? (performanceMetrics.avatarSpeakTimes.reduce((a, b) => a + b, 0) / performanceMetrics.avatarSpeakTimes.length).toFixed(2) : 0}ms`);
-  };
+  // Persistent media context using refs to survive re-renders
+  const mediaContextRef = useRef<{
+    analysis: string;
+    fileName: string;
+    hasContext: boolean;
+  }>({
+    analysis: '',
+    fileName: '',
+    hasContext: false
+  });
   
   // Audio context and gain node for volume control
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -115,7 +87,6 @@ function App() {
       gainNodeRef.current.connect(audioContextRef.current.destination);
     }
   };
-
 
 
   // Pre-warm avatar for faster response
@@ -166,7 +137,7 @@ function App() {
             if (analysisQueueRef.current.length > 0) {
               processAnalysisQueue();
             }
-          }, 500); // Reduced from 2000ms to 500ms
+          }, 1000); // Reduced from 2000ms to 500ms
         }).catch((speakError) => {
           console.error('Error making avatar speak:', speakError);
           setIsAvatarSpeaking(false);
@@ -183,24 +154,40 @@ function App() {
     }
   };
 
+  // Function to clear media context
+  const clearMediaContext = () => {
+    console.log('🧹 Clearing media context');
+    setCurrentMediaAnalysis('');
+    setHasMediaContext(false);
+    setMediaFileName('');
+    // Also clear the ref
+    mediaContextRef.current = {
+      analysis: '',
+      fileName: '',
+      hasContext: false
+    };
+  };
+
   // Function to generate dynamic buttons based on conversation context
   const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
     try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: `Generate 4 witty button prompts (1-3 words each) based on conversation. Return only the 4 button texts, one per line.`
-          },
-          {
-            role: 'user',
-            content: `Context: ${conversation.slice(-1).map(msg => msg.content).join(' ')}` // Only use last message for fastest processing
-          }
-        ],
-        max_tokens: 40, // Even more reduced for faster response
-        temperature: 0.5 // Lower temperature for more consistent, faster responses
-      });
+      const response = await createApiCall(
+        () => openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `Generate 4 witty button prompts (1-4 words each) based on conversation. Return only the 4 button texts, one per line.`
+            },
+            {
+              role: 'user',
+              content: `Context: ${conversation.slice(-2).map(msg => msg.content).join(' ')}` // Only use last 2 messages for faster processing
+            }
+          ],
+          max_tokens: 100, // Reduced for faster response
+          temperature: 0.7
+        }),
+      );
       
       const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
       setDynamicButtons(buttons);
@@ -208,10 +195,10 @@ function App() {
       console.error('Error generating dynamic buttons:', error);
       // Fallback to default buttons
       setDynamicButtons([
-        "🤔 Mind-Bending Mysteries",
-        "💰 Money Magic & Mayhem", 
-        "💕 Love & Laughter Therapy",
-        "🎭 Life's Comedy Coach"
+        "Mind-Bending Mysteries",
+        "Money Magic & Mayhem", 
+        "Love & Laughter Therapy",
+        "Life's Comedy Coach"
       ]);
     }
   };
@@ -220,19 +207,12 @@ function App() {
   const openai = new OpenAI({
     apiKey: apiKey,
     dangerouslyAllowBrowser: true,
-    // Optimized for faster responses
-    timeout: 8000, // Reduced timeout for faster failure detection
-    maxRetries: 1, // Reduced retries for faster response
-    // Add keep-alive for connection reuse
-    fetch: (url, options) => {
-      return fetch(url, {
-        ...options,
-        keepalive: true,
-        headers: {
-          ...options?.headers,
-          'Connection': 'keep-alive'
-        }
-      });
+    // Optimized configuration for better performance
+    timeout: 30000, // 30 second timeout for complex requests
+    maxRetries: 3, // More retries for reliability
+    // Add request timeout configuration
+    defaultHeaders: {
+      'User-Agent': 'AI-Assistant-App/1.0'
     }
   });
 
@@ -252,8 +232,8 @@ function App() {
 
         let isRecording = false;
         let silenceStart: number | null = null;
-        const silenceTimeout = 500; // Reduced to 1.5 seconds of silence for faster response
-        const voiceThreshold = 25; // Lower threshold for more sensitive voice detection
+        const silenceTimeout = 1000; // 2 seconds of silence
+        const voiceThreshold = 30; // Voice detection threshold
 
         const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
@@ -261,10 +241,7 @@ function App() {
 
           if (avgVolume > voiceThreshold && !isRecording) {
             // Voice detected, start recording
-            const recordingStartTime = performance.now();
-            console.log('🎤 [DEBUG] Voice detected! Starting recording...');
-            console.log(`🎤 [DEBUG] Volume level: ${avgVolume.toFixed(2)}`);
-            
+            console.log('🎤 Someone is trying to talk to me! Let me listen...');
             isRecording = true;
             silenceStart = null;
             mediaRecorder.current = new MediaRecorder(stream);
@@ -275,16 +252,9 @@ function App() {
             };
 
             mediaRecorder.current.onstop = () => {
-              const recordingEndTime = performance.now();
-              const recordingDuration = recordingEndTime - recordingStartTime;
-              console.log(`🎤 [DEBUG] Recording stopped after ${recordingDuration.toFixed(2)}ms`);
-              console.log(`🎤 [DEBUG] Audio chunks collected: ${audioChunks.current.length}`);
-              
               const audioBlob = new Blob(audioChunks.current, {
                 type: 'audio/wav',
               });
-              console.log(`🎤 [DEBUG] Audio blob size: ${(audioBlob.size / 1024).toFixed(2)}KB`);
-              
               audioChunks.current = [];
               transcribeAudio(audioBlob);
               isRecording = false;
@@ -297,8 +267,7 @@ function App() {
             if (!silenceStart) silenceStart = Date.now();
 
             if (Date.now() - silenceStart >= silenceTimeout) {
-              const silenceDuration = Date.now() - silenceStart;
-              console.log(`🤫 [DEBUG] Silence detected for ${silenceDuration}ms, stopping recording...`);
+              console.log('🤫 Ah, the silence! Let me process what you said...');
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
@@ -343,6 +312,17 @@ function App() {
   // Function to handle file upload
   const handleFileUpload = async (file: File) => {
     try {
+      // Check file size limits to prevent timeout issues
+      // const maxFileSize = 5 * 1024 * 1024;
+      // if (file.size > maxFileSize) {
+      //   toast({
+      //     variant: "destructive",
+      //     title: "File too large",
+      //     description: `Please upload files smaller than 5MB. Current file: ${(file.size / 1024 / 1024).toFixed(1)}MB`,
+      //   });
+      //   return;
+      // }
+
       // Show success message
       toast({
         title: "File uploaded successfully!",
@@ -352,42 +332,67 @@ function App() {
       let aiResponse;
 
       if (file.type.startsWith('image/')) {
-        // Handle images with GPT-4 Vision
+        // Optimize image processing to reduce payload size
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
         const base64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // Remove the data:image/...;base64, prefix
-            const base64Data = result.split(',')[1];
+          img.onload = () => {
+            // Resize image to max 1024x1024 to reduce payload size
+            const maxSize = 1024;
+            let { width, height } = img;
+            
+            if (width > height) {
+              if (width > maxSize) {
+                height = (height * maxSize) / width;
+                width = maxSize;
+              }
+            } else {
+              if (height > maxSize) {
+                width = (width * maxSize) / height;
+                height = maxSize;
+              }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // Convert to base64 with compression
+            const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
             resolve(base64Data);
           };
-          reader.readAsDataURL(file);
+          img.src = URL.createObjectURL(file);
         });
 
-        aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${file.type};base64,${base64}`
+        aiResponse = await createApiCall(
+          () => openai.chat.completions.create({
+            model: 'gpt-4o', // Use gpt-4o for better performance
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `Please analyze this image and provide a detailed description. What do you see in this image? Please be specific about objects, people, text, colors, and any other notable details.`
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:image/jpeg;base64,${base64}`
+                    }
                   }
-                }
-              ]
-            }
-          ],
-          max_tokens: 1000
-        });
+                ]
+              }
+            ],
+            max_tokens: 1000
+          }),
+          { timeout: 60000, retries: 2 }
+        );
 
       } else if (file.type.startsWith('video/')) {
-        // Handle videos - extract frame for analysis
+        // Handle videos - extract frame for analysis with optimization
         const video = document.createElement('video');
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -396,170 +401,213 @@ function App() {
         video.src = videoUrl;
         
         // Wait for video to load and extract a frame
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Video loading timeout'));
+          }, 10000); // 10 second timeout for video processing
+          
           video.onloadedmetadata = () => {
             video.currentTime = 1; // Get frame at 1 second
           };
           video.onseeked = () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx?.drawImage(video, 0, 0);
+            // Resize frame to reduce payload size
+            const maxSize = 1024;
+            let { videoWidth, videoHeight } = video;
+            
+            if (videoWidth > videoHeight) {
+              if (videoWidth > maxSize) {
+                videoHeight = (videoHeight * maxSize) / videoWidth;
+                videoWidth = maxSize;
+              }
+            } else {
+              if (videoHeight > maxSize) {
+                videoWidth = (videoWidth * maxSize) / videoHeight;
+                videoHeight = maxSize;
+              }
+            }
+            
+            canvas.width = videoWidth;
+            canvas.height = videoHeight;
+            ctx?.drawImage(video, 0, 0, videoWidth, videoHeight);
+            clearTimeout(timeout);
             resolve(null);
+          };
+          video.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('Video loading failed'));
           };
         });
 
-        // Convert canvas to base64
-        const frameBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
+        // Convert canvas to base64 with compression
+        const frameBase64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
         
-        aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:image/jpeg;base64,${frameBase64}`
+        aiResponse = await createApiCall(
+          () => openai.chat.completions.create({
+            model: 'gpt-4o', // Use gpt-4o for better performance
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: `Please analyze this video frame from "${file.name}". Describe what you see in this frame, including any objects, people, text, activities, or notable details. This is a frame from a video file.`
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:image/jpeg;base64,${frameBase64}`
+                    }
                   }
-                }
-              ]
-            }
-          ],
-          max_tokens: 1000
-        });
+                ]
+              }
+            ],
+            max_tokens: 1000
+          }),
+          { timeout: 60000, retries: 2 }
+        );
 
         URL.revokeObjectURL(videoUrl);
 
       } else if (file.type.startsWith('text/')) {
-        // Handle text files
+        // Handle text files with size limits
         const fileContent = await file.text();
+        const maxTextLength = 50000; // 50KB text limit
+        
+        if (fileContent.length > maxTextLength) {
+          toast({
+            variant: "destructive",
+            title: "Text file too large",
+            description: `Text files must be smaller than 50KB. Current: ${(fileContent.length / 1024).toFixed(1)}KB`,
+          });
+          return;
+        }
+        
         const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
         
-        aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4',
-          messages: [
-            { role: 'user', content: prompt }
-          ]
-        });
+        aiResponse = await createApiCall(
+          () => openai.chat.completions.create({
+            model: 'gpt-4o', // Use gpt-4o for better performance
+            messages: [
+              { role: 'user', content: prompt }
+            ],
+            max_tokens: 2000
+          }),
+          { timeout: 30000, retries: 2 }
+        );
 
       } else {
         // For other file types, provide basic analysis
         const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
         
-        aiResponse = await openai.chat.completions.create({
-          model: 'gpt-4',
-          messages: [
-            { role: 'user', content: prompt }
-          ]
-        });
+        aiResponse = await createApiCall(
+          () => openai.chat.completions.create({
+            model: 'gpt-4o', // Use gpt-4o for better performance
+            messages: [
+              { role: 'user', content: prompt }
+            ],
+            max_tokens: 1000
+          }),
+          { timeout: 30000, retries: 2 }
+        );
       }
       
-      setInput(aiResponse.choices[0].message.content || '');
+      const analysisResult = aiResponse.choices[0].message.content || '';
+      
+      // Store the media analysis for future context
+      console.log('💾 Storing media analysis:', { analysisResult, fileName: file.name });
+      setCurrentMediaAnalysis(analysisResult);
+      setHasMediaContext(true);
+      setMediaFileName(file.name);
+      
+      // Also store in ref for persistence
+      mediaContextRef.current = {
+        analysis: analysisResult,
+        fileName: file.name,
+        hasContext: true
+      };
+      
+      // Verify state was set
+      setTimeout(() => {
+        console.log('🔍 State after setting:', { hasMediaContext, currentMediaAnalysis, mediaFileName });
+        console.log('🔍 Ref after setting:', mediaContextRef.current);
+      }, 100);
+      
+      // Make avatar ask what help the user needs
+      const helpPrompt = `I've analyzed your ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'} "${file.name}". What would you like me to help you with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}? I can provide insights, answer questions, or help you with anything related to what I found in it.`;
+      
+      setInput(helpPrompt);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
+      const errorInfo = handleApiError(error);
       toast({
         variant: "destructive",
-        title: "Uh oh! Something went wrong.",
-        description: error.message,
+        title: errorInfo.title,
+        description: errorInfo.description,
       });
     }
   };
 
   // Function to transcribe the audio to text and then get the respective response of the given prompt
   async function transcribeAudio(audioBlob: Blob) {
-    const startTime = performance.now();
-    console.log('🎯 [DEBUG] Starting audio transcription process');
-    
     try {
       // Convert Blob to File
       const audioFile = new File([audioBlob], 'recording.wav', {
         type: 'audio/wav',
       });
 
-      console.log('🎯 [DEBUG] Audio file created, starting transcription...');
-      const transcriptionStartTime = performance.now();
+      // Start transcription for faster processing with timeout
+      const transcriptionResponse = await createApiCall(
+        () => openai.audio.transcriptions.create({
+          model: 'whisper-1',
+          file: audioFile,
+          response_format: 'text'
+        }),
+      );
 
-      // Start transcription for faster processing
-      const transcriptionResponse = await openai.audio.transcriptions.create({
-        model: 'whisper-1',
-        file: audioFile,
-      });
-
-      const transcriptionEndTime = performance.now();
-      const transcriptionDuration = transcriptionEndTime - transcriptionStartTime;
-      console.log(`🎯 [DEBUG] Transcription completed in ${transcriptionDuration.toFixed(2)}ms`);
-      console.log('🎯 [DEBUG] Transcription result:', transcriptionResponse.text);
+      // Handle transcription response - with response_format: 'text', it returns a string directly
+      let transcription: string;
       
-      // Track performance metrics
-      setPerformanceMetrics(prev => {
-        const newTranscriptionTimes = [...prev.transcriptionTimes, transcriptionDuration];
-        console.log(`🎯 [DEBUG] Updated transcription metrics: ${transcriptionDuration.toFixed(2)}ms`);
-        
-        return {
-          ...prev,
-          transcriptionTimes: newTranscriptionTimes,
-          totalRequests: prev.totalRequests + 1
-        };
-      });
-
-      const transcription = transcriptionResponse.text;
-      
-      // Check preloaded responses first for instant response
-      const preloadCheckStart = performance.now();
-      const normalizedInput = transcription.toLowerCase().trim();
-      const preloadedResponse = preloadedResponses.current.get(normalizedInput);
-      const preloadCheckEnd = performance.now();
-      
-      console.log(`🎯 [DEBUG] Preload check completed in ${(preloadCheckEnd - preloadCheckStart).toFixed(2)}ms`);
-      
-      if (preloadedResponse) {
-        const preloadTotalTime = performance.now() - startTime;
-        console.log(`⚡ [DEBUG] Using preloaded response! Total time: ${preloadTotalTime.toFixed(2)}ms`);
-        console.log('⚡ [DEBUG] Preloaded response:', preloadedResponse);
-        
-        setInput(preloadedResponse);
-        
-        const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
-        const limitedHistory = updatedHistory.slice(-4);
-        setConversationHistory(limitedHistory);
-        
-        const finalHistory = [...limitedHistory, { role: 'assistant', content: preloadedResponse }];
-        setConversationHistory(finalHistory);
-        
-        // Generate dynamic buttons in background
-        generateDynamicButtons(finalHistory).catch(error => {
-          console.warn('Dynamic buttons generation failed:', error);
+      if (typeof transcriptionResponse === 'string') {
+        // Direct string response when using response_format: 'text'
+        transcription = transcriptionResponse;
+      } else if (transcriptionResponse && typeof transcriptionResponse === 'object' && 'text' in transcriptionResponse) {
+        // Object response when using other formats
+        transcription = transcriptionResponse.text;
+      } else {
+        console.error('Invalid transcription response structure:', transcriptionResponse);
+        toast({
+          variant: "destructive",
+          title: "Transcription Error",
+          description: "Invalid response from transcription service. Please try again.",
         });
         return;
       }
       
-      // Check cache second for faster response
-      const cacheCheckStart = performance.now();
-      const cacheKey = normalizedInput;
+      // Check if transcription is valid
+      if (!transcription || typeof transcription !== 'string') {
+        console.error('Invalid transcription response:', transcriptionResponse);
+        toast({
+          variant: "destructive",
+          title: "Transcription Error",
+          description: "Failed to transcribe audio. Please try again.",
+        });
+        return;
+      }
+      
+      // Check cache first for faster response (but skip cache if media context is active)
+      const cacheKey = transcription.toLowerCase().trim();
       const cachedResponse = responseCache.current.get(cacheKey);
-      const cacheCheckEnd = performance.now();
       
-      console.log(`🎯 [DEBUG] Cache check completed in ${(cacheCheckEnd - cacheCheckStart).toFixed(2)}ms`);
-      
-      if (cachedResponse) {
-        const cacheTotalTime = performance.now() - startTime;
-        console.log(`🚀 [DEBUG] Using cached response! Total time: ${cacheTotalTime.toFixed(2)}ms`);
-        console.log('🚀 [DEBUG] Cached response:', cachedResponse);
-        
+      if (cachedResponse && !hasMediaContext) {
+        console.log('🚀 Using cached response for faster reply!');
         setInput(cachedResponse);
         
         // Update conversation history
         const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
-        const limitedHistory = updatedHistory.slice(-4);
-        setConversationHistory(limitedHistory);
+        setConversationHistory(updatedHistory);
         
-        const finalHistory = [...limitedHistory, { role: 'assistant', content: cachedResponse }];
+        const finalHistory = [...updatedHistory, { role: 'assistant', content: cachedResponse }];
         setConversationHistory(finalHistory);
         
         // Generate dynamic buttons in background
@@ -569,57 +617,64 @@ function App() {
         return;
       }
       
-      // Update conversation history with limited size for faster processing
-      const historyUpdateStart = performance.now();
+      // Build messages array with conversation history and media context
+      const messages: any[] = [];
+      
+      // Always add system prompt first
+      messages.push({
+        role: 'system',
+        content: 'You are a clever, witty AI assistant. Keep responses under 100 words, be engaging and conversational.'
+      });
+      
+      // Add media analysis if available (check both state and ref)
+      const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
+      const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
+      const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
+      
+      if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
+        console.log('🎯 Media context is active!', { 
+          hasMediaContext, 
+          mediaFileName, 
+          currentMediaAnalysis,
+          refContext: mediaContextRef.current
+        });
+        messages.push({
+          role: 'assistant',
+          content: `I've analyzed your ${effectiveFileName}. Here's what I found: ${effectiveAnalysis}`
+        });
+      } else {
+        console.log('❌ No media context', { 
+          hasMediaContext, 
+          mediaFileName, 
+          currentMediaAnalysis,
+          refContext: mediaContextRef.current
+        });
+      }
+      
+      // Add conversation history
+      messages.push(...conversationHistory);
+      
+      // Add current user message
+      messages.push({ role: 'user', content: transcription || '' });
+      
+      console.log('📤 Sending messages to OpenAI:', messages);
+      
+      // Update conversation history
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
-      // Keep only last 4 messages (2 exchanges) to reduce API payload
-      const limitedHistory = updatedHistory.slice(-4);
-      setConversationHistory(limitedHistory);
-      const historyUpdateEnd = performance.now();
+      setConversationHistory(updatedHistory);
       
-      console.log(`🎯 [DEBUG] History update completed in ${(historyUpdateEnd - historyUpdateStart).toFixed(2)}ms`);
+      const specificResponse = await createApiCall(
+        () => openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: messages,
+          max_tokens: 150, // Reduced for faster response
+          temperature: 0.8
+        }),
+      );
       
-      // Get a more specific response based on actual transcription with streaming
-      console.log('🎯 [DEBUG] Starting OpenAI API call...');
-      const openaiStartTime = performance.now();
-      
-      const specificResponse = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { 
-            role: 'system', 
-            content: `You are a clever, witty AI assistant. Keep responses under 10 words, be engaging and conversational.`
-          },
-          { role: 'user', content: transcription || '' }
-        ],
-        max_tokens: 15, // Much more reduced for faster response
-        temperature: 0.5, // Lower for more consistent, faster responses
-        stream: false // Keep false for now, but we'll optimize the response handling
-      });
-      
-      const openaiEndTime = performance.now();
-      const openaiDuration = openaiEndTime - openaiStartTime;
-      console.log(`🎯 [DEBUG] OpenAI API call completed in ${openaiDuration.toFixed(2)}ms`);
-      
-      // Track performance metrics
-      setPerformanceMetrics(prev => {
-        const newOpenaiTimes = [...prev.openaiTimes, openaiDuration];
-        const newAverage = newOpenaiTimes.length > 0 ? 
-          newOpenaiTimes.reduce((a, b) => a + b, 0) / newOpenaiTimes.length : 0;
-        
-        console.log(`🎯 [DEBUG] Updated OpenAI metrics: ${openaiDuration.toFixed(2)}ms, avg: ${newAverage.toFixed(2)}ms`);
-        
-        return {
-          ...prev,
-          openaiTimes: newOpenaiTimes
-        };
-      });
-      
-      const aiMessage = specificResponse.choices[0].message.content || '';
-      console.log('🎯 [DEBUG] AI response:', aiMessage);
+      const aiMessage = (specificResponse as any).choices[0].message.content || '';
       
       // Cache the response for future use
-      const cacheUpdateStart = performance.now();
       responseCache.current.set(cacheKey, aiMessage);
       
       // Limit cache size to prevent memory issues
@@ -629,135 +684,52 @@ function App() {
           responseCache.current.delete(firstKey);
         }
       }
-      const cacheUpdateEnd = performance.now();
-      
-      console.log(`🎯 [DEBUG] Cache update completed in ${(cacheUpdateEnd - cacheUpdateStart).toFixed(2)}ms`);
       
       setInput(aiMessage);
       
       // Update conversation history with AI response
-      const finalHistory = [...limitedHistory, { role: 'assistant', content: aiMessage }];
+      const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
       setConversationHistory(finalHistory);
       
       // Generate dynamic buttons in background (non-blocking)
       generateDynamicButtons(finalHistory).catch(error => {
         console.warn('Dynamic buttons generation failed:', error);
       });
-      
-      const totalTime = performance.now() - startTime;
-      console.log(`🎯 [DEBUG] Total processing time: ${totalTime.toFixed(2)}ms`);
-      console.log(`🎯 [DEBUG] Breakdown: Transcription: ${transcriptionDuration.toFixed(2)}ms, OpenAI: ${openaiDuration.toFixed(2)}ms`);
-      
-      // Update average response time
-      setPerformanceMetrics(prev => {
-        const newAverage = (prev.averageResponseTime * (prev.totalRequests - 1) + totalTime) / prev.totalRequests;
-        return {
-          ...prev,
-          averageResponseTime: newAverage
-        };
-      });
-      
-      // Log performance summary every 5 requests
-      if ((performanceMetrics.totalRequests + 1) % 5 === 0) {
-        logPerformanceSummary();
-      }
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
+      const errorInfo = handleApiError(error);
       toast({
         variant: "destructive",
-        title: "Well, that was unexpected! 🤔",
-        description: `Sometimes the most interesting discoveries come from the most unexpected errors: ${error.message}. Let's try that again with a fresh perspective!`,
+        title: errorInfo.title,
+        description: errorInfo.description,
       })
     }
   }
 
   // useEffect getting triggered when the input state is updated, basically make the avatar to talk
   useEffect(() => {
-    function speak() {
+    async function speak() {
       if (!input || !avatar.current || !data?.sessionId) return;
       
-      const speakStartTime = performance.now();
-      console.log('🎯 [DEBUG] Starting avatar speak process');
-      console.log('🎯 [DEBUG] Input text:', input);
-      
       try {
-        // Optimize text length for faster avatar response
-        // Much shorter text = much faster TTS processing
-        // Break long responses into chunks for faster processing
-        let optimizedText = input;
-        if (input.length > 60) {
-          // Find the last sentence or word boundary before 60 characters
-          const truncated = input.substring(0, 60);
-          const lastSentence = truncated.lastIndexOf('.');
-          const lastWord = truncated.lastIndexOf(' ');
-          
-          if (lastSentence > 30) {
-            optimizedText = input.substring(0, lastSentence + 1);
-          } else if (lastWord > 20) {
-            optimizedText = input.substring(0, lastWord) + "...";
-          } else {
-            optimizedText = truncated + "...";
-          }
-        }
-        
-        console.log(`🎯 [DEBUG] Text length: ${input.length} chars, optimized: ${optimizedText.length} chars`);
-        
         // Start speaking immediately without waiting for completion
         const speakPromise = avatar.current.speak({ 
           taskRequest: { 
-            text: optimizedText, 
+            text: input, 
             sessionId: data.sessionId! 
           } 
         });
         
-        const speakInitTime = performance.now();
-        console.log(`🎯 [DEBUG] Avatar speak initiated in ${(speakInitTime - speakStartTime).toFixed(2)}ms`);
-        
-        // Don't wait for completion - let it run in background
-        // This reduces perceived response time significantly
-        speakPromise.then(() => {
-          const speakCompleteTime = performance.now();
-          const speakDuration = speakCompleteTime - speakStartTime;
-          console.log(`🎯 [DEBUG] Avatar speak completed in ${speakDuration.toFixed(2)}ms`);
-          
-          // Track avatar speak time
-          setPerformanceMetrics(prev => {
-            const newAvatarSpeakTimes = [...prev.avatarSpeakTimes, speakDuration];
-            console.log(`🎯 [DEBUG] Updated avatar speak metrics: ${speakDuration.toFixed(2)}ms`);
-            
-            return {
-              ...prev,
-              avatarSpeakTimes: newAvatarSpeakTimes
-            };
-          });
-        }).catch((err: any) => {
-          const speakErrorTime = performance.now();
-          const speakErrorDuration = speakErrorTime - speakStartTime;
-          console.error(`🎯 [DEBUG] Avatar speak error after ${speakErrorDuration.toFixed(2)}ms:`, err);
+        // Don't await - let it run in background for faster response
+        speakPromise.catch((err: any) => {
+          console.error('Avatar speak error:', err);
         });
-        
-        // Track initiation time (not completion time) for better UX
-        const initiationTime = speakInitTime - speakStartTime;
-        setPerformanceMetrics(prev => {
-          const newAvatarSpeakTimes = [...prev.avatarSpeakTimes, initiationTime];
-          console.log(`🎯 [DEBUG] Updated avatar initiation metrics: ${initiationTime.toFixed(2)}ms`);
-          
-          return {
-            ...prev,
-            avatarSpeakTimes: newAvatarSpeakTimes
-          };
-        });
-        
-        console.log(`🎯 [DEBUG] Avatar speak started successfully in ${initiationTime.toFixed(2)}ms - not waiting for completion`);
         
       } catch (err: any) {
-        const speakSetupErrorTime = performance.now();
-        const speakSetupErrorDuration = speakSetupErrorTime - speakStartTime;
-        console.error(`🎯 [DEBUG] Avatar speak setup error after ${speakSetupErrorDuration.toFixed(2)}ms:`, err);
+        console.error('Avatar speak setup error:', err);
       }
     }
 
-    // Execute immediately without async/await overhead
     speak();
   }, [input]);
 
@@ -861,18 +833,15 @@ async function grab() {
     setStream(avatar.current!.mediaStream);
     setIsSessionStarted(true);
     
-    // Pre-warm avatar for faster first response
-    setTimeout(() => {
-      preWarmAvatarResponse();
-    }, 1000);
-    
     // Initialize UI components immediately
     setDynamicButtons([
-      "🤔 Mind-Bending Mysteries",
-      "💰 Money Magic & Mayhem", 
-      "💕 Love & Laughter Therapy",
-      "🎭 Life's Comedy Coach"
+      "Mind-Bending Mysteries",
+      "Money Magic & Mayhem", 
+      "Love & Laughter Therapy",
+      "Life's Comedy Coach"
     ]);
+    
+    // Note: Don't clear media context here as it might be needed for ongoing analysis
     
     setLoadingProgress(100);
     
@@ -1017,68 +986,63 @@ const handleMotionStopped = async () => {
     // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
     
-    // Analyze with OpenAI Vision using streaming for faster response
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o", // Updated to use gpt-4o model
-      messages: [
-        {
-          role: "system",
-          content: `You are a hilarious AI that analyzes images with humor and wit! Your analysis should be:
-          - Extremely funny and entertaining
-          - Use puns, jokes, and witty observations about what you see
-          - Be enthusiastic and make people laugh
-          - Add humorous commentary about facial expressions, poses, or situations
-          - Make funny comparisons or references
-          - Keep it light-hearted and positive
-          - Always end with a funny observation or joke
-          - Keep responses concise (under 200 characters) for real-time display
-          - Write as if you're speaking directly to the person (no emojis in speech)
-          - Use conversational, natural language that sounds good when spoken aloud`
-        },
-        {
-          role: "user",
-          content: [
+    // Analyze with OpenAI Vision using optimized settings
+    const response = await createApiCall(
+      async () => {
+        const stream = await openai.chat.completions.create({
+          model: "gpt-4o", // Updated to use gpt-4o model
+          messages: [
             {
-              type: "text",
-              text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! Speak directly to the person as if you're commenting on what they're doing right now."
+              role: "system",
+              content: `You are a hilarious AI that analyzes images with humor and wit! Your analysis should be:
+              - Extremely funny and entertaining
+              - Use puns, jokes, and witty observations about what you see
+              - Be enthusiastic and make people laugh
+              - Add humorous commentary about facial expressions, poses, or situations
+              - Make funny comparisons or references
+              - Keep it light-hearted and positive
+              - Always end with a funny observation or joke
+              - Keep responses concise (under 200 characters) for real-time display
+              - Write as if you're speaking directly to the person (no emojis in speech)
+              - Use conversational, natural language that sounds good when spoken aloud`
             },
             {
-              type: "image_url",
-              image_url: {
-                url: imageData
-              }
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Analyze this image and provide a hilarious, witty description of what you see! Focus on the person's facial expression, body language, and any notable details. Make it funny and entertaining! Speak directly to the person as if you're commenting on what they're doing right now."
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageData
+                  }
+                }
+              ]
             }
-          ]
-        }
-      ],
-      max_tokens: 200,
-      stream: true // Enable streaming for faster response
-    });
-    
-    let fullAnalysis = '';
-    let hasStartedSpeaking = false;
-    
-    // Process streaming response for immediate avatar speech
-    for await (const chunk of response) {
-      const content = chunk.choices[0]?.delta?.content;
-      if (content) {
-        fullAnalysis += content;
+          ],
+          max_tokens: 1000,
+          stream: true // Enable streaming for faster response
+        });
         
-        // Start speaking as soon as we have enough content (minimum 15 characters)
-        if (fullAnalysis.length >= 15 && !hasStartedSpeaking && !isProcessingQueueRef.current) {
-          const partialAnalysis = fullAnalysis.trim();
-          if (partialAnalysis) {
-            analysisQueueRef.current.push(partialAnalysis);
-            processAnalysisQueue();
-            hasStartedSpeaking = true;
-            console.log('🚀 Starting speech with partial content:', partialAnalysis);
+        // Process the stream and return the full response
+        let fullResponse = '';
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content;
+          if (content) {
+            fullResponse += content;
           }
         }
-      }
-    }
+        return { choices: [{ message: { content: fullResponse } }] } as any;
+      },
+      { timeout: 45000, retries: 2 }
+    );
     
-    // If we didn't start speaking with partial content, use the full analysis
-    if (!hasStartedSpeaking && fullAnalysis.trim()) {
+    const fullAnalysis = response.choices[0].message.content || '';
+    
+    // Add the analysis to the queue for avatar speech
+    if (fullAnalysis.trim()) {
       analysisQueueRef.current.push(fullAnalysis.trim());
       if (!isProcessingQueueRef.current) {
         processAnalysisQueue();
@@ -1097,56 +1061,67 @@ const handleMotionStopped = async () => {
 // When the user selects the pre-defined prompts, this useEffect will get triggered
 useEffect(() => {
   if (selectedPrompt) {
-    const buttonClickStartTime = performance.now();
-    console.log('🎯 [DEBUG] Button clicked, starting OpenAI API call');
-    console.log('🎯 [DEBUG] Selected prompt:', selectedPrompt);
+    // Build messages array with conversation history and media context
+    const messages: any[] = [];
     
-    const openaiStartTime = performance.now();
+    // Always add system prompt first
+    messages.push({
+      role: 'system',
+      content: 'You are a witty AI assistant. Keep responses under 100 words, be engaging and conversational.'
+    });
     
-    openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are a witty AI assistant. Keep responses under 10 words, be engaging and conversational.'
-          },
-          { role: 'user', content: selectedPrompt }
-        ],
-        max_tokens: 15, // Much more reduced for faster response
-      temperature: 0.6 // Lower for more consistent, faster responses
-    }).then(aiResponse => {
-      const openaiEndTime = performance.now();
-      const openaiDuration = openaiEndTime - openaiStartTime;
-      const totalDuration = openaiEndTime - buttonClickStartTime;
-      
-      console.log(`🎯 [DEBUG] OpenAI API call completed in ${openaiDuration.toFixed(2)}ms`);
-      console.log(`🎯 [DEBUG] Total button response time: ${totalDuration.toFixed(2)}ms`);
-      console.log('🎯 [DEBUG] AI response:', aiResponse.choices[0].message.content);
-      
-      // Track OpenAI timing for button clicks
-      setPerformanceMetrics(prev => {
-        const newOpenaiTimes = [...prev.openaiTimes, openaiDuration];
-        console.log(`🎯 [DEBUG] Button OpenAI timing: ${openaiDuration.toFixed(2)}ms`);
-        return {
-          ...prev,
-          openaiTimes: newOpenaiTimes
-        };
+    // Add media analysis if available (check both state and ref)
+    const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
+    const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
+    const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
+    
+    if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
+      console.log('🎯 Media context is active for button!', { 
+        hasMediaContext, 
+        mediaFileName, 
+        currentMediaAnalysis,
+        refContext: mediaContextRef.current
       });
-      
+      messages.push({
+        role: 'assistant',
+        content: `I've analyzed your ${effectiveFileName}. Here's what I found: ${effectiveAnalysis}`
+      });
+    } else {
+      console.log('❌ No media context for button', { 
+        hasMediaContext, 
+        mediaFileName, 
+        currentMediaAnalysis,
+        refContext: mediaContextRef.current
+      });
+    }
+    
+    // Add conversation history
+    messages.push(...conversationHistory);
+    
+    // Add current user message
+    messages.push({ role: 'user', content: selectedPrompt });
+    
+    createApiCall(
+      () => openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: messages,
+        max_tokens: 150, // Reduced for faster response
+        temperature: 0.8
+      }),
+      { timeout: 20000, retries: 2 }
+    ).then((aiResponse: any) => {
       setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
-      const errorTime = performance.now();
-      const errorDuration = errorTime - buttonClickStartTime;
-      console.error(`🎯 [DEBUG] Button click error after ${errorDuration.toFixed(2)}ms:`, error);
-      
+      console.log(error);
+      const errorInfo = handleApiError(error);
       toast({
         variant: "destructive",
-        title: "Uh oh! Something went wrong.",
-        description: error.message,
+        title: errorInfo.title,
+        description: errorInfo.description,
       })
     })
   }
-}, [selectedPrompt])
+}, [selectedPrompt, hasMediaContext, currentMediaAnalysis, mediaFileName])
 
 
 // When the stream gets the data, The avatar video will gets played
@@ -1328,13 +1303,13 @@ return (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-20">
           <div className="text-white text-center max-w-md mx-auto p-6">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-6"></div>
-            <div className="text-2xl mb-4">🎭 Getting my funny face ready...</div>
+            <div className="text-2xl mb-4">Getting my funny face ready...</div>
             
             
             <div className="text-sm opacity-75">
-              {loadingProgress < 50 ? "Preparing jokes and witty comebacks! 😄" : 
-               loadingProgress < 80 ? "Setting up the stage for comedy! 🎪" :
-               "Almost ready to entertain! 🎭"}
+              {loadingProgress < 50 ? "Preparing jokes and witty comebacks!" : 
+               loadingProgress < 80 ? "Setting up the stage for comedy!" :
+               "Almost ready to entertain!"}
             </div>
             
             <div className="text-xs mt-2 opacity-50">
@@ -1355,6 +1330,8 @@ return (
                 onCameraClick={handleCameraClick}
                 isCameraActive={isCameraActive}
                 dynamicButtons={dynamicButtons}
+                hasMediaContext={hasMediaContext}
+                mediaFileName={mediaFileName}
               />
             </Suspense>
             <Suspense fallback={<div className="h-16 bg-gray-200 animate-pulse rounded-full"></div>}>

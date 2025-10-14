@@ -28,7 +28,7 @@ export const createApiCall = async <T>(
     fallbackMessage = 'Request failed. Please try again.'
   } = options;
 
-  let lastError: Error | undefined;
+  let lastError: Error;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
