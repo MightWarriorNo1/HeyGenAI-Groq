@@ -16,9 +16,11 @@ interface BadgeProps {
     onCameraClick?: () => void;
     isCameraActive?: boolean;
     dynamicButtons?: string[];
+    hasMediaContext?: boolean;
+    mediaFileName?: string;
 }
 
-export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, onCameraClick, isCameraActive, dynamicButtons }) => {
+export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, onCameraClick, isCameraActive, dynamicButtons, hasMediaContext, mediaFileName }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,6 +36,13 @@ export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, 
 
     return (
         <div className="flex flex-col items-center gap-4 mt-3 px-2 w-full">
+            {/* Media context indicator */}
+            {hasMediaContext && (
+                <div className="bg-green-500/20 border border-green-500/50 text-green-400 px-3 py-2 rounded-lg text-sm">
+                    📎 Analyzing: {mediaFileName}
+                </div>
+            )}
+            
             {/* Hidden file input */}
             <input
                 ref={fileInputRef}
@@ -48,23 +57,24 @@ export const Badges: React.FC<BadgeProps> = ({ setSelectedPrompt, onFileUpload, 
                 <Button
                     variant="outline"
                     size="icon"
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 h-8 w-8 sm:h-9 sm:w-9"
-                    onClick={handlePaperclipClick}
-                >
-                    <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
-                </Button>
-                <Button
-                    variant="outline"
-                    size="icon"
-                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
+                    className={`h-10 w-14 sm:h-10 sm:w-14 ${
                         isCameraActive 
-                            ? 'bg-red-500/20 border-red-500/50 text-red-400 hover:bg-red-500/30' 
+                            ? 'bg-red-500/20 border-red-500/50 text-red-400 rounded-full hover:bg-red-500/30' 
                             : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
                     }`}
                     onClick={onCameraClick}
                 >
-                    <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <Camera className="h-6 w-6 sm:h-8 sm:w-8" />
                 </Button>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 h-10 w-14 sm:h-10 sm:w-14"
+                    onClick={handlePaperclipClick}
+                >
+                    <Paperclip className="h-6 w-6 sm:h-8 sm:w-8" />
+                </Button>
+                
             </div>
             
             {/* Main buttons - responsive layout */}
