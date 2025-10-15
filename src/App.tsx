@@ -1,12 +1,10 @@
 /*eslint-disable*/
-import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import OpenAI from 'openai';
 import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
 import { getAccessToken } from './services/api';
 import { Video } from './components/reusable/Video';
-import { Toaster } from "@/components/ui/toaster";
-import { createApiCall, handleApiError } from './utils/api-helpers';
+import { createApiCall } from './utils/api-helpers';
 import { Button } from "@/components/ui/button";
 import { Camera, Paperclip } from "lucide-react";
 
@@ -17,14 +15,11 @@ const CameraVideo = lazy(() => import('./components/reusable/CameraVideo').then(
 
 
 function App() {
-  //Toast
-  const { toast } = useToast()
 
   const [startLoading, setStartLoading] = useState<boolean>(false);
   const [selectedPrompt, setSelectedPrompt] = useState<string>('');
   const [input, setInput] = useState<string>('');
   const [conversationHistory, setConversationHistory] = useState<Array<{role: string, content: string}>>([]);
-  const [dynamicButtons, setDynamicButtons] = useState<string[]>([]);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream>();
@@ -158,39 +153,39 @@ function App() {
 
 
   // Function to generate dynamic buttons based on conversation context
-  const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
-    try {
-      const response = await createApiCall(
-        () => openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `Generate 4 witty button prompts (1-4 words each) based on conversation. Return only the 4 button texts, one per line.`
-            },
-            {
-              role: 'user',
-              content: `Context: ${conversation.slice(-2).map(msg => msg.content).join(' ')}` // Only use last 2 messages for faster processing
-            }
-          ],
-          max_tokens: 100, // Reduced for faster response
-          temperature: 0.7
-        }),
-      );
+  // const generateDynamicButtons = async (conversation: Array<{role: string, content: string}>) => {
+  //   try {
+  //     const response = await createApiCall(
+  //       () => openai.chat.completions.create({
+  //         model: 'gpt-3.5-turbo',
+  //         messages: [
+  //           {
+  //             role: 'system',
+  //             content: `Generate 4 witty button prompts (1-4 words each) based on conversation. Return only the 4 button texts, one per line.`
+  //           },
+  //           {
+  //             role: 'user',
+  //             content: `Context: ${conversation.slice(-2).map(msg => msg.content).join(' ')}` // Only use last 2 messages for faster processing
+  //           }
+  //         ],
+  //         max_tokens: 100, // Reduced for faster response
+  //         temperature: 0.7
+  //       }),
+  //     );
       
-      const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
-      setDynamicButtons(buttons);
-    } catch (error) {
-      console.error('Error generating dynamic buttons:', error);
-      // Fallback to default buttons
-      setDynamicButtons([
-        "Mind-Bending Mysteries",
-        "Money Magic & Mayhem", 
-        "Love & Laughter Therapy",
-        "Life's Comedy Coach"
-      ]);
-    }
-  };
+  //     const buttons = response.choices[0].message.content?.split('\n').filter(btn => btn.trim()) || [];
+  //     setDynamicButtons(buttons);
+  //   } catch (error) {
+  //     console.error('Error generating dynamic buttons:', error);
+  //     // Fallback to default buttons
+  //     setDynamicButtons([
+  //       "Mind-Bending Mysteries",
+  //       "Money Magic & Mayhem", 
+  //       "Love & Laughter Therapy",
+  //       "Life's Comedy Coach"
+  //     ]);
+  //   }
+  // };
 
   const apiKey: any = import.meta.env.VITE_OPENAI_API_KEY;
   const openai = new OpenAI({
@@ -275,11 +270,6 @@ function App() {
       })
       .catch((error) => {
         console.error('Error accessing microphone:', error);
-        toast({
-          variant: "destructive",
-          title: "Uh oh! Something went wrong.",
-          description: error.message,
-        })
       });
   };
 
@@ -315,10 +305,6 @@ function App() {
       fileName: '',
       hasContext: false
     };
-    toast({
-      title: "📎 Context cleared",
-      description: "I'm ready for a new file or conversation!",
-    });
   };
 
   // Function to handle file upload
@@ -335,22 +321,7 @@ function App() {
       //   return;
       // }
 
-      // Show natural, conversational loading messages
-      const fileTypeMessages = {
-        'image': "👀 Taking a look at your image...",
-        'video': "🎬 Analyzing your video...", 
-        'text': "📖 Reading through your document...",
-        'default': "🔍 Examining your file..."
-      };
       
-      const fileType = file.type.startsWith('image/') ? 'image' : 
-                      file.type.startsWith('video/') ? 'video' : 
-                      file.type.startsWith('text/') ? 'text' : 'default';
-      
-      toast({
-        title: fileTypeMessages[fileType],
-        description: `Just a moment while I process ${file.name}...`,
-      });
 
       let aiResponse;
 
@@ -497,11 +468,6 @@ function App() {
         const maxTextLength = 50000; // 50KB text limit
         
         if (fileContent.length > maxTextLength) {
-          toast({
-            variant: "destructive",
-            title: "📄 File too large",
-            description: `That document is quite long! Please keep it under 50KB (currently ${(fileContent.length / 1024).toFixed(1)}KB)`,
-          });
           return;
         }
         
@@ -555,31 +521,16 @@ function App() {
         console.log('🔍 Ref after setting:', mediaContextRef.current);
       }, 100);
       
-      // Natural, conversational success messages
-      const successMessages = {
-        'image': "🖼️ Great! I can see your image clearly. What would you like to know about it?",
-        'video': "🎬 Perfect! I've analyzed your video. What caught your attention in it?",
-        'text': "📖 I've read through your document. What would you like to discuss about it?",
-        'default': "📎 I've examined your file. How can I help you with it?"
-      };
       
-      toast({
-        title: successMessages[fileType],
-        description: `Ready to chat about ${file.name}!`,
-      });
       
-      // Make avatar ask what help the user needs in a natural way
-      const helpPrompt = `I've analyzed your ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'} "${file.name}". What would you like me to help you with regarding this ${file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file'}? I can provide insights, answer questions, or help you with anything related to what I found in it.`;
+      // Make avatar respond naturally about the uploaded file
+      const fileType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
+      const helpPrompt = `I can see your ${fileType} "${file.name}". ${analysisResult}`;
       
       setInput(helpPrompt);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
-      toast({
-        variant: "destructive",
-        title: "Hmm, that didn't work",
-        description: "I couldn't process that file. Mind trying a different one?",
-      });
     }
   };
 
@@ -611,22 +562,12 @@ function App() {
         transcription = transcriptionResponse.text;
       } else {
         console.error('Invalid transcription response structure:', transcriptionResponse);
-        toast({
-          variant: "destructive",
-          title: "Transcription Error",
-          description: "Invalid response from transcription service. Please try again.",
-        });
         return;
       }
       
       // Check if transcription is valid
       if (!transcription || typeof transcription !== 'string') {
         console.error('Invalid transcription response:', transcriptionResponse);
-        toast({
-          variant: "destructive",
-          title: "Transcription Error",
-          description: "Failed to transcribe audio. Please try again.",
-        });
         return;
       }
 
@@ -663,27 +604,26 @@ function App() {
         
         const finalHistory = [...updatedHistory, { role: 'assistant', content: cachedResponse }];
         setConversationHistory(finalHistory);
-        
-        // Generate dynamic buttons in background
-        generateDynamicButtons(finalHistory).catch(error => {
-          console.warn('Dynamic buttons generation failed:', error);
-        });
         return;
       }
       
       // Build messages array with conversation history and media context
       const messages: any[] = [];
       
-      // Always add system prompt first
-      messages.push({
-        role: 'system',
-        content: 'You are a clever, witty AI assistant. Keep responses under 100 words, be engaging and conversational.'
-      });
-      
       // Add media analysis if available (check both state and ref)
       const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
       const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
       const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
+      
+      // Always add system prompt first - make it context-aware
+      const systemPrompt = effectiveMediaContext && effectiveAnalysis ? 
+        `You are a helpful AI assistant having a natural conversation about an image or media file. You can see and understand the content, and you're discussing it with the user in a friendly, conversational way. Keep responses under 100 words, be engaging and natural. Reference what you see in the image naturally in your responses.` :
+        'You are a clever, witty AI assistant. Keep responses under 100 words, be engaging and conversational.';
+      
+      messages.push({
+        role: 'system',
+        content: systemPrompt
+      });
       
       if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
         console.log('🎯 Media context is active!', { 
@@ -699,9 +639,12 @@ function App() {
                          fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                          fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
         
+        // Create a more natural, conversational context message
+        const naturalContextMessage = `I can see your ${mediaType} "${effectiveFileName}". ${effectiveAnalysis}`;
+        
         messages.push({
           role: 'assistant',
-          content: `I've been looking at your ${mediaType} "${effectiveFileName}". Here's what I noticed: ${effectiveAnalysis}\n\nFeel free to ask me anything about it - I'm here to help you understand or work with this ${mediaType}!`
+          content: naturalContextMessage
         });
       } else {
         console.log('❌ No media context', { 
@@ -712,8 +655,20 @@ function App() {
         });
       }
       
-      // Add conversation history
-      messages.push(...conversationHistory);
+      // Add conversation history with better context awareness
+      if (conversationHistory.length > 0) {
+        // If we have media context, ensure the conversation flows naturally
+        if (effectiveMediaContext && effectiveAnalysis) {
+          // Filter out any previous media context messages to avoid repetition
+          const filteredHistory = conversationHistory.filter(msg => 
+            !msg.content.includes('I can see your') && 
+            !msg.content.includes('Here\'s what I noticed')
+          );
+          messages.push(...filteredHistory);
+        } else {
+          messages.push(...conversationHistory);
+        }
+      }
       
       // Add current user message
       messages.push({ role: 'user', content: transcription || '' });
@@ -728,8 +683,8 @@ function App() {
         () => openai.chat.completions.create({
           model: 'gpt-3.5-turbo',
           messages: messages,
-          max_tokens: 150, // Reduced for faster response
-          temperature: 0.8
+          max_tokens: effectiveMediaContext ? 200 : 150, // Allow more tokens for image conversations
+          temperature: effectiveMediaContext ? 0.7 : 0.8 // Slightly lower temperature for more focused image responses
         }),
       );
       
@@ -751,19 +706,8 @@ function App() {
       // Update conversation history with AI response
       const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
       setConversationHistory(finalHistory);
-      
-      // Generate dynamic buttons in background (non-blocking)
-      generateDynamicButtons(finalHistory).catch(error => {
-        console.warn('Dynamic buttons generation failed:', error);
-      });
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
-      const errorInfo = handleApiError(error);
-      toast({
-        variant: "destructive",
-        title: errorInfo.title,
-        description: errorInfo.description,
-      })
     }
   }
 
@@ -830,11 +774,6 @@ function App() {
 
       } catch (error: any) {
         console.error("Error fetching access token:", error);
-        toast({
-          variant: "destructive",
-          title: "Uh oh! Something went wrong.",
-          description: error.response.data.message || error.message,
-        })
       }
     }
 
@@ -894,14 +833,6 @@ async function grab() {
     setStream(avatar.current!.mediaStream);
     setIsSessionStarted(true);
     
-    // Initialize UI components immediately
-    setDynamicButtons([
-      "Mind-Bending Mysteries",
-      "Money Magic & Mayhem", 
-      "Love & Laughter Therapy",
-      "Life's Comedy Coach"
-    ]);
-    
     // Note: Don't clear media context here as it might be needed for ongoing analysis
     
     setLoadingProgress(100);
@@ -939,11 +870,6 @@ async function grab() {
     setStartAvatarLoading(false);
     setStartLoading(false);
     setLoadingProgress(0); 
-    toast({
-      variant: "destructive",
-      title: "Uh oh! Something went wrong.",
-      description: error.response?.data?.message || error.message,
-    })
   }
 };
 
@@ -966,10 +892,6 @@ const handleCameraClick = async () => {
     setIsCameraActive(false);
     setIsAnalyzing(false);
     
-    toast({
-      title: "📸 Camera Deactivated",
-      description: "I'm no longer watching. Click the camera button to start again! 👋",
-    });
   } else {
     // Start camera with rear-facing preference
     try {
@@ -1004,17 +926,8 @@ const handleCameraClick = async () => {
       // Camera is now passive - only analyzes when user asks something
       // No automatic analysis interval
       
-      toast({
-        title: "📸 Camera Activated!",
-        description: "I'm now watching! Ask me 'what do you see?' or 'describe what you see' to analyze! 👁️",
-      });
     } catch (error) {
       console.error('Error accessing camera:', error);
-      toast({
-        variant: "destructive",
-        title: "Camera Error",
-        description: "Could not access camera. Please check permissions and try again.",
-      });
     }
   }
 };
@@ -1192,11 +1105,6 @@ const handleVisionAnalysis = async (userQuestion: string) => {
     
   } catch (error) {
     console.error('Error analyzing vision:', error);
-    toast({
-      variant: "destructive",
-      title: "Vision Analysis Error",
-      description: "Sorry, I couldn't analyze what I see right now. Please try again.",
-    });
   } finally {
     setIsAnalyzing(false);
   }
@@ -1208,16 +1116,20 @@ useEffect(() => {
     // Build messages array with conversation history and media context
     const messages: any[] = [];
     
-    // Always add system prompt first
-    messages.push({
-      role: 'system',
-      content: 'You are a witty AI assistant. Keep responses under 100 words, be engaging and conversational.'
-    });
-    
     // Add media analysis if available (check both state and ref)
     const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
     const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
     const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
+    
+    // Always add system prompt first - make it context-aware
+    const systemPrompt = effectiveMediaContext && effectiveAnalysis ? 
+      `You are a helpful AI assistant having a natural conversation about an image or media file. You can see and understand the content, and you're discussing it with the user in a friendly, conversational way. Keep responses under 100 words, be engaging and natural. Reference what you see in the image naturally in your responses.` :
+      'You are a witty AI assistant. Keep responses under 100 words, be engaging and conversational.';
+    
+    messages.push({
+      role: 'system',
+      content: systemPrompt
+    });
     
     if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
       console.log('🎯 Media context is active for button!', { 
@@ -1233,9 +1145,12 @@ useEffect(() => {
                        fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                        fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
       
+      // Create a more natural, conversational context message
+      const naturalContextMessage = `I can see your ${mediaType} "${effectiveFileName}". ${effectiveAnalysis}`;
+      
       messages.push({
         role: 'assistant',
-        content: `I've been looking at your ${mediaType} "${effectiveFileName}". Here's what I noticed: ${effectiveAnalysis}\n\nFeel free to ask me anything about it - I'm here to help you understand or work with this ${mediaType}!`
+        content: naturalContextMessage
       });
     } else {
       console.log('❌ No media context for button', { 
@@ -1246,8 +1161,20 @@ useEffect(() => {
       });
     }
     
-    // Add conversation history
-    messages.push(...conversationHistory);
+    // Add conversation history with better context awareness
+    if (conversationHistory.length > 0) {
+      // If we have media context, ensure the conversation flows naturally
+      if (effectiveMediaContext && effectiveAnalysis) {
+        // Filter out any previous media context messages to avoid repetition
+        const filteredHistory = conversationHistory.filter(msg => 
+          !msg.content.includes('I can see your') && 
+          !msg.content.includes('Here\'s what I noticed')
+        );
+        messages.push(...filteredHistory);
+      } else {
+        messages.push(...conversationHistory);
+      }
+    }
     
     // Add current user message
     messages.push({ role: 'user', content: selectedPrompt });
@@ -1256,20 +1183,14 @@ useEffect(() => {
       () => openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: messages,
-        max_tokens: 150, // Reduced for faster response
-        temperature: 0.8
+        max_tokens: effectiveMediaContext ? 200 : 150, // Allow more tokens for image conversations
+        temperature: effectiveMediaContext ? 0.7 : 0.8 // Slightly lower temperature for more focused image responses
       }),
       { timeout: 20000, retries: 2 }
     ).then((aiResponse: any) => {
       setInput(aiResponse.choices[0].message.content || '');
     }).catch(error => {
       console.log(error);
-      const errorInfo = handleApiError(error);
-      toast({
-        variant: "destructive",
-        title: errorInfo.title,
-        description: errorInfo.description,
-      })
     })
   }
 }, [selectedPrompt, hasMediaContext, currentMediaAnalysis, mediaFileName])
@@ -1392,14 +1313,12 @@ useEffect(() => {
 if (!isSessionStarted && !startLoading && !startAvatarLoading) {
   return (
     <>
-      <Toaster />
     </>
   );
 }
 
 return (
   <>
-    <Toaster />
     <div 
       className={`h-screen w-screen relative overflow-hidden transition-all duration-300 ${
         isDragOver ? 'ring-4 ring-blue-400 ring-opacity-50 bg-blue-900/20' : ''
@@ -1581,21 +1500,6 @@ return (
         </div>
       )}
 
-      {/* Drag and drop overlay */}
-      {isDragOver && (
-        <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white/90 dark:bg-gray-800/90 rounded-lg p-8 text-center shadow-2xl">
-            <Paperclip className="h-16 w-16 mx-auto mb-4 text-blue-500 animate-bounce" />
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">
-              Drop your file here!
-            </h3>
-            <p className="text-gray-600 dark:text-gray-300">
-              I'll analyze it and we can chat about it
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Controls overlay at bottom - only show after session starts */}
       {isSessionStarted && (
         <div className='absolute bottom-0 left-0 right-0 flex flex-col justify-center p-2 z-10'>
@@ -1606,7 +1510,6 @@ return (
                 onFileUpload={handleFileUpload}
                 onCameraClick={handleCameraClick}
                 isCameraActive={isCameraActive}
-                dynamicButtons={dynamicButtons}
                 hasMediaContext={hasMediaContext}
                 mediaFileName={mediaFileName}
                 onClearContext={clearMediaContext}
