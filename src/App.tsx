@@ -216,41 +216,78 @@ function App() {
 
         let isRecording = false;
         let silenceStart: number | null = null;
-        const silenceTimeout = 1000; // 2 seconds of silence
-        const voiceThreshold = 30; // Voice detection threshold
+        const silenceTimeout = 1500; // 1.5 seconds of silence (increased for better reliability)
+        const voiceThreshold = 25; // Lowered voice detection threshold for better sensitivity
 
         const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
           const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
 
+          // Add more detailed logging for debugging
+          if (avgVolume > voiceThreshold * 0.5) { // Log when approaching threshold
+            console.log('🎤 Voice activity detected:', { avgVolume, threshold: voiceThreshold, isRecording });
+          }
+
           if (avgVolume > voiceThreshold && !isRecording) {
             // Voice detected, start recording
-            console.log('🎤 Someone is trying to talk to me! Let me listen...');
+            console.log('🎤 Someone is trying to talk to me! Let me listen...', { 
+              avgVolume, 
+              threshold: voiceThreshold,
+              hasMediaContext,
+              mediaFileName 
+            });
             isRecording = true;
             silenceStart = null;
-            mediaRecorder.current = new MediaRecorder(stream);
-            audioChunks.current = [];
-
-            mediaRecorder.current.ondataavailable = (event) => {
-              audioChunks.current.push(event.data);
-            };
-
-            mediaRecorder.current.onstop = () => {
-              const audioBlob = new Blob(audioChunks.current, {
-                type: 'audio/wav',
-              });
+            
+            try {
+              mediaRecorder.current = new MediaRecorder(stream);
               audioChunks.current = [];
-              transcribeAudio(audioBlob);
-              isRecording = false;
-            };
 
-            mediaRecorder.current.start();
+              mediaRecorder.current.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                  audioChunks.current.push(event.data);
+                  console.log('🎤 Audio chunk received:', event.data.size);
+                }
+              };
+
+              mediaRecorder.current.onstop = () => {
+                console.log('🎤 Recording stopped, processing audio...', { 
+                  chunksCount: audioChunks.current.length,
+                  totalSize: audioChunks.current.reduce((sum, chunk) => sum + chunk.size, 0)
+                });
+                
+                if (audioChunks.current.length > 0) {
+                  const audioBlob = new Blob(audioChunks.current, {
+                    type: 'audio/wav',
+                  });
+                  audioChunks.current = [];
+                  transcribeAudio(audioBlob);
+                } else {
+                  console.warn('🎤 No audio chunks recorded');
+                }
+                isRecording = false;
+              };
+
+              mediaRecorder.current.onerror = (error) => {
+                console.error('🎤 MediaRecorder error:', error);
+                isRecording = false;
+              };
+
+              mediaRecorder.current.start();
+              console.log('🎤 Recording started');
+            } catch (recorderError) {
+              console.error('🎤 Error creating MediaRecorder:', recorderError);
+              isRecording = false;
+            }
           } else if (avgVolume < voiceThreshold && isRecording) {
             // Voice stopped, check for silence
             if (!silenceStart) silenceStart = Date.now();
 
             if (Date.now() - silenceStart >= silenceTimeout) {
-              console.log('🤫 Ah, the silence! Let me process what you said...');
+              console.log('🤫 Ah, the silence! Let me process what you said...', {
+                silenceDuration: Date.now() - silenceStart,
+                chunksCount: audioChunks.current.length
+              });
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
@@ -523,14 +560,16 @@ function App() {
       
       
       
-      // Make avatar ask what help the user needs in a natural, conversational way
+      // Make avatar ask what help the user needs in a natural, ChatGPT-like way
       const fileType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
       const helpPrompts = [
-        `I just took a look at your ${fileType} "${file.name}" - pretty interesting stuff! What would you like to know about it?`,
-        `Your ${fileType} "${file.name}" caught my attention! What can I help you understand about it?`,
-        `I've been examining your ${fileType} "${file.name}" and I'm curious - what would you like to explore about it?`,
-        `Your ${fileType} "${file.name}" is quite fascinating! What questions do you have about it?`,
-        `I just analyzed your ${fileType} "${file.name}" - what aspects would you like to dive deeper into?`
+        `I just took a look at your ${fileType} "${file.name}" - this is really interesting! I'm genuinely curious about what you'd like to explore about it. What caught your attention?`,
+        `Your ${fileType} "${file.name}" caught my eye! I'd love to dive into whatever aspects interest you most. What would you like to know about it?`,
+        `I've been examining your ${fileType} "${file.name}" and I'm finding it quite engaging. What questions do you have? I'm excited to explore it with you.`,
+        `This ${fileType} "${file.name}" is fascinating! I'm genuinely curious - what drew you to this? What would you like to focus on?`,
+        `I just finished analyzing your ${fileType} "${file.name}" and wow, there's a lot to unpack here! What aspects are you most interested in discussing?`,
+        `Your ${fileType} "${file.name}" is really compelling! I'd love to hear your thoughts about it. What sparked your interest in this particular ${fileType}?`,
+        `I've been studying your ${fileType} "${file.name}" and I'm genuinely impressed. What would you like to explore together? I'm here to help you understand or discuss whatever interests you most.`
       ];
       
       const randomHelpPrompt = helpPrompts[Math.floor(Math.random() * helpPrompts.length)];
@@ -544,6 +583,12 @@ function App() {
   // Function to transcribe the audio to text and then get the respective response of the given prompt
   async function transcribeAudio(audioBlob: Blob) {
     try {
+      console.log('🎤 Starting audio transcription...', { 
+        blobSize: audioBlob.size, 
+        hasMediaContext, 
+        mediaFileName 
+      });
+      
       // Convert Blob to File
       const audioFile = new File([audioBlob], 'recording.wav', {
         type: 'audio/wav',
@@ -556,7 +601,10 @@ function App() {
           file: audioFile,
           response_format: 'text'
         }),
+        { timeout: 30000, retries: 3 } // Increased timeout and retries for better reliability
       );
+
+      console.log('🎤 Transcription response received:', transcriptionResponse);
 
       // Handle transcription response - with response_format: 'text', it returns a string directly
       let transcription: string;
@@ -573,10 +621,12 @@ function App() {
       }
       
       // Check if transcription is valid
-      if (!transcription || typeof transcription !== 'string') {
-        console.error('Invalid transcription response:', transcriptionResponse);
+      if (!transcription || typeof transcription !== 'string' || transcription.trim().length === 0) {
+        console.error('Invalid or empty transcription response:', transcriptionResponse);
         return;
       }
+
+      console.log('🎤 Transcription successful:', transcription);
 
       // Check if user is asking about vision/camera analysis
       const visionKeywords = [
@@ -590,6 +640,13 @@ function App() {
         transcriptionLower.includes(keyword)
       );
 
+      console.log('🎤 Vision check:', { 
+        transcription: transcription, 
+        isVisionRequest, 
+        isCameraActive, 
+        hasCameraRef: !!cameraVideoRef.current 
+      });
+
       // If user is asking about vision and camera is active, trigger analysis
       if (isVisionRequest && isCameraActive && cameraVideoRef.current) {
         console.log('👁️ User is asking about vision! Let me analyze what I see...');
@@ -600,6 +657,13 @@ function App() {
       // Check cache first for faster response (but skip cache if media context is active)
       const cacheKey = transcription.toLowerCase().trim();
       const cachedResponse = responseCache.current.get(cacheKey);
+      
+      console.log('🎤 Cache check:', { 
+        cacheKey, 
+        hasCachedResponse: !!cachedResponse, 
+        hasMediaContext, 
+        willUseCache: !!(cachedResponse && !hasMediaContext) 
+      });
       
       if (cachedResponse && !hasMediaContext) {
         console.log('🚀 Using cached response for faster reply!');
@@ -620,7 +684,7 @@ function App() {
       // Always add system prompt first
       messages.push({
         role: 'system',
-        content: 'You are a helpful, engaging AI assistant who loves discussing images and media. When talking about images, be conversational, curious, and encouraging. Ask follow-up questions naturally like "What do you think about...?" or "Have you noticed...?" or "Would you like to know more about...?". Keep responses under 100 words and make the conversation feel like you\'re genuinely interested in what the user is showing you. Use phrases like "That\'s interesting!" or "I can see why you\'d want to know about that!" to show engagement.'
+        content: 'You are an intelligent, conversational AI assistant with a warm and engaging personality. Think of yourself as a knowledgeable friend who loves to chat and explore ideas together. Be genuinely curious, ask thoughtful questions, and show real interest in what the user is sharing. When discussing images or media, be specific about what you notice and ask engaging follow-up questions. Use natural language patterns, show personality, and make the conversation flow smoothly. Be helpful, insightful, and encouraging. Keep responses conversational and under 150 words, but don\'t be afraid to show enthusiasm and intelligence.'
       });
       
       // Add media analysis if available (check both state and ref)
@@ -642,16 +706,16 @@ function App() {
                          fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                          fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
         
-        // Create more natural, conversational context messages
+        // Create more natural, ChatGPT-like context messages
         const contextPrompts = [
-          `I've been examining your ${mediaType} "${effectiveFileName}" and here's what caught my eye: ${effectiveAnalysis}\n\nWhat would you like to explore about it?`,
-          `Your ${mediaType} "${effectiveFileName}" is quite interesting! I noticed: ${effectiveAnalysis}\n\nWhat aspects would you like to discuss?`,
-          `I just finished looking at your ${mediaType} "${effectiveFileName}" - here's what I found: ${effectiveAnalysis}\n\nWhat questions do you have about it?`,
-          `Your ${mediaType} "${effectiveFileName}" has some fascinating details! Here's what I observed: ${effectiveAnalysis}\n\nWhat would you like to know more about?`,
-          `I've been studying your ${mediaType} "${effectiveFileName}" and here's what I discovered: ${effectiveAnalysis}\n\nWhat can I help you understand about it?`,
-          `Wow, your ${mediaType} "${effectiveFileName}" is really something! Here's what stood out to me: ${effectiveAnalysis}\n\nWhat caught your attention about it?`,
-          `I just took a closer look at your ${mediaType} "${effectiveFileName}" and found some interesting things: ${effectiveAnalysis}\n\nWhat would you like to dive into?`,
-          `Your ${mediaType} "${effectiveFileName}" is quite compelling! I spotted: ${effectiveAnalysis}\n\nWhat aspects are you most curious about?`
+          `I just took a look at your ${mediaType} "${effectiveFileName}" - this is really interesting! ${effectiveAnalysis}\n\nI'm curious, what drew you to this ${mediaType}? What would you like to explore about it?`,
+          `Your ${mediaType} "${effectiveFileName}" caught my attention! Here's what I'm seeing: ${effectiveAnalysis}\n\nWhat aspects are you most interested in discussing?`,
+          `I've been examining your ${mediaType} "${effectiveFileName}" and I'm genuinely impressed. ${effectiveAnalysis}\n\nWhat questions do you have about it? I'd love to dive deeper into whatever interests you most.`,
+          `This ${mediaType} "${effectiveFileName}" is fascinating! ${effectiveAnalysis}\n\nWhat made you choose this particular ${mediaType}? I'm excited to explore it with you.`,
+          `I just finished analyzing your ${mediaType} "${effectiveFileName}" and wow, there's a lot to unpack here! ${effectiveAnalysis}\n\nWhat would you like to focus on? I'm here to help you understand or explore any aspect that interests you.`,
+          `Your ${mediaType} "${effectiveFileName}" is really compelling! ${effectiveAnalysis}\n\nI'm genuinely curious - what's your connection to this? What would you like to know more about?`,
+          `I've been studying your ${mediaType} "${effectiveFileName}" and I'm finding it quite engaging. ${effectiveAnalysis}\n\nWhat sparked your interest in this? I'd love to hear your thoughts and explore it together.`,
+          `This ${mediaType} "${effectiveFileName}" is quite something! ${effectiveAnalysis}\n\nWhat aspects are you most curious about? I'm here to help you understand or discuss whatever interests you most.`
         ];
         
         const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
@@ -680,35 +744,67 @@ function App() {
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
       setConversationHistory(updatedHistory);
       
-      const specificResponse = await createApiCall(
-        () => openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: messages,
-          max_tokens: 150, // Reduced for faster response
-          temperature: 0.8
-        }),
-      );
-      
-      const aiMessage = (specificResponse as any).choices[0].message.content || '';
-      
-      // Cache the response for future use
-      responseCache.current.set(cacheKey, aiMessage);
-      
-      // Limit cache size to prevent memory issues
-      if (responseCache.current.size > 50) {
-        const firstKey = responseCache.current.keys().next().value;
-        if (firstKey) {
-          responseCache.current.delete(firstKey);
+      try {
+        const specificResponse = await createApiCall(
+          () => openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: messages,
+            max_tokens: 150, // Reduced for faster response
+            temperature: 0.8
+          }),
+          { timeout: 30000, retries: 3 } // Increased timeout and retries for better reliability
+        );
+        
+        console.log('📤 OpenAI response received:', specificResponse);
+        
+        const aiMessage = (specificResponse as any).choices[0].message.content || '';
+        
+        if (!aiMessage || aiMessage.trim().length === 0) {
+          console.error('Empty AI response received');
+          return;
         }
+        
+        console.log('🎤 AI response:', aiMessage);
+        
+        // Cache the response for future use
+        responseCache.current.set(cacheKey, aiMessage);
+        
+        // Limit cache size to prevent memory issues
+        if (responseCache.current.size > 50) {
+          const firstKey = responseCache.current.keys().next().value;
+          if (firstKey) {
+            responseCache.current.delete(firstKey);
+          }
+        }
+        
+        setInput(aiMessage);
+        
+        // Update conversation history with AI response
+        const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
+        setConversationHistory(finalHistory);
+        
+      } catch (apiError) {
+        console.error('🎤 Error in OpenAI API call:', apiError);
+        // Don't return here, let the error be caught by the outer try-catch
+        throw apiError;
       }
-      
-      setInput(aiMessage);
-      
-      // Update conversation history with AI response
-      const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
-      setConversationHistory(finalHistory);
     } catch (error: any) {
       console.error('Error transcribing audio:', error);
+      
+      // If there's an error and we have media context, try to provide a fallback response
+      if (hasMediaContext || mediaContextRef.current.hasContext) {
+        console.log('🎤 Providing fallback response due to transcription error');
+        const fallbackResponses = [
+          "I'm having trouble hearing you clearly - could you try speaking a bit louder or closer to the microphone? I'm really interested in what you have to say about the image!",
+          "I didn't quite catch that. Could you repeat what you said about the image? I'm genuinely curious to hear your thoughts.",
+          "I'm experiencing some audio issues right now. Can you try asking your question about the image again? I'd love to help you explore it.",
+          "I didn't quite hear that clearly. What would you like to know about the image you uploaded? I'm excited to discuss it with you.",
+          "I'm having trouble processing your voice right now, but I'm really interested in what you have to say. Could you try again? I'd love to hear your thoughts about the image."
+        ];
+        
+        const randomFallback = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+        setInput(randomFallback);
+      }
     }
   }
 
@@ -1120,7 +1216,7 @@ useEffect(() => {
     // Always add system prompt first
     messages.push({
       role: 'system',
-      content: 'You are a helpful, engaging AI assistant who loves discussing images and media. When talking about images, be conversational, curious, and encouraging. Ask follow-up questions naturally like "What do you think about...?" or "Have you noticed...?" or "Would you like to know more about...?". Keep responses under 100 words and make the conversation feel like you\'re genuinely interested in what the user is showing you. Use phrases like "That\'s interesting!" or "I can see why you\'d want to know about that!" to show engagement.'
+      content: 'You are an intelligent, conversational AI assistant with a warm and engaging personality. Think of yourself as a knowledgeable friend who loves to chat and explore ideas together. Be genuinely curious, ask thoughtful questions, and show real interest in what the user is sharing. When discussing images or media, be specific about what you notice and ask engaging follow-up questions. Use natural language patterns, show personality, and make the conversation flow smoothly. Be helpful, insightful, and encouraging. Keep responses conversational and under 150 words, but don\'t be afraid to show enthusiasm and intelligence.'
     });
     
     // Add media analysis if available (check both state and ref)
@@ -1142,16 +1238,16 @@ useEffect(() => {
                        fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                        fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
       
-      // Create more natural, conversational context messages
+      // Create more natural, ChatGPT-like context messages
       const contextPrompts = [
-        `I've been examining your ${mediaType} "${effectiveFileName}" and here's what caught my eye: ${effectiveAnalysis}\n\nWhat would you like to explore about it?`,
-        `Your ${mediaType} "${effectiveFileName}" is quite interesting! I noticed: ${effectiveAnalysis}\n\nWhat aspects would you like to discuss?`,
-        `I just finished looking at your ${mediaType} "${effectiveFileName}" - here's what I found: ${effectiveAnalysis}\n\nWhat questions do you have about it?`,
-        `Your ${mediaType} "${effectiveFileName}" has some fascinating details! Here's what I observed: ${effectiveAnalysis}\n\nWhat would you like to know more about?`,
-        `I've been studying your ${mediaType} "${effectiveFileName}" and here's what I discovered: ${effectiveAnalysis}\n\nWhat can I help you understand about it?`,
-        `Wow, your ${mediaType} "${effectiveFileName}" is really something! Here's what stood out to me: ${effectiveAnalysis}\n\nWhat caught your attention about it?`,
-        `I just took a closer look at your ${mediaType} "${effectiveFileName}" and found some interesting things: ${effectiveAnalysis}\n\nWhat would you like to dive into?`,
-        `Your ${mediaType} "${effectiveFileName}" is quite compelling! I spotted: ${effectiveAnalysis}\n\nWhat aspects are you most curious about?`
+        `I just took a look at your ${mediaType} "${effectiveFileName}" - this is really interesting! ${effectiveAnalysis}\n\nI'm curious, what drew you to this ${mediaType}? What would you like to explore about it?`,
+        `Your ${mediaType} "${effectiveFileName}" caught my attention! Here's what I'm seeing: ${effectiveAnalysis}\n\nWhat aspects are you most interested in discussing?`,
+        `I've been examining your ${mediaType} "${effectiveFileName}" and I'm genuinely impressed. ${effectiveAnalysis}\n\nWhat questions do you have about it? I'd love to dive deeper into whatever interests you most.`,
+        `This ${mediaType} "${effectiveFileName}" is fascinating! ${effectiveAnalysis}\n\nWhat made you choose this particular ${mediaType}? I'm excited to explore it with you.`,
+        `I just finished analyzing your ${mediaType} "${effectiveFileName}" and wow, there's a lot to unpack here! ${effectiveAnalysis}\n\nWhat would you like to focus on? I'm here to help you understand or explore any aspect that interests you.`,
+        `Your ${mediaType} "${effectiveFileName}" is really compelling! ${effectiveAnalysis}\n\nI'm genuinely curious - what's your connection to this? What would you like to know more about?`,
+        `I've been studying your ${mediaType} "${effectiveFileName}" and I'm finding it quite engaging. ${effectiveAnalysis}\n\nWhat sparked your interest in this? I'd love to hear your thoughts and explore it together.`,
+        `This ${mediaType} "${effectiveFileName}" is quite something! ${effectiveAnalysis}\n\nWhat aspects are you most curious about? I'm here to help you understand or discuss whatever interests you most.`
       ];
       
       const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
