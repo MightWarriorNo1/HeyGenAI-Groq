@@ -523,11 +523,18 @@ function App() {
       
       
       
-      // Make avatar respond naturally about the uploaded file
+      // Make avatar ask what help the user needs in a natural, conversational way
       const fileType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file';
-      const helpPrompt = `I can see your ${fileType} "${file.name}". ${analysisResult}`;
+      const helpPrompts = [
+        `I just took a look at your ${fileType} "${file.name}" - pretty interesting stuff! What would you like to know about it?`,
+        `Your ${fileType} "${file.name}" caught my attention! What can I help you understand about it?`,
+        `I've been examining your ${fileType} "${file.name}" and I'm curious - what would you like to explore about it?`,
+        `Your ${fileType} "${file.name}" is quite fascinating! What questions do you have about it?`,
+        `I just analyzed your ${fileType} "${file.name}" - what aspects would you like to dive deeper into?`
+      ];
       
-      setInput(helpPrompt);
+      const randomHelpPrompt = helpPrompts[Math.floor(Math.random() * helpPrompts.length)];
+      setInput(randomHelpPrompt);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
@@ -610,20 +617,16 @@ function App() {
       // Build messages array with conversation history and media context
       const messages: any[] = [];
       
+      // Always add system prompt first
+      messages.push({
+        role: 'system',
+        content: 'You are a helpful, engaging AI assistant who loves discussing images and media. When talking about images, be conversational, curious, and encouraging. Ask follow-up questions naturally like "What do you think about...?" or "Have you noticed...?" or "Would you like to know more about...?". Keep responses under 100 words and make the conversation feel like you\'re genuinely interested in what the user is showing you. Use phrases like "That\'s interesting!" or "I can see why you\'d want to know about that!" to show engagement.'
+      });
+      
       // Add media analysis if available (check both state and ref)
       const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
       const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
       const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
-      
-      // Always add system prompt first - make it context-aware
-      const systemPrompt = effectiveMediaContext && effectiveAnalysis ? 
-        `You are a helpful AI assistant having a natural conversation about an image or media file. You can see and understand the content, and you're discussing it with the user in a friendly, conversational way. Keep responses under 100 words, be engaging and natural. Reference what you see in the image naturally in your responses.` :
-        'You are a clever, witty AI assistant. Keep responses under 100 words, be engaging and conversational.';
-      
-      messages.push({
-        role: 'system',
-        content: systemPrompt
-      });
       
       if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
         console.log('🎯 Media context is active!', { 
@@ -639,12 +642,22 @@ function App() {
                          fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                          fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
         
-        // Create a more natural, conversational context message
-        const naturalContextMessage = `I can see your ${mediaType} "${effectiveFileName}". ${effectiveAnalysis}`;
+        // Create more natural, conversational context messages
+        const contextPrompts = [
+          `I've been examining your ${mediaType} "${effectiveFileName}" and here's what caught my eye: ${effectiveAnalysis}\n\nWhat would you like to explore about it?`,
+          `Your ${mediaType} "${effectiveFileName}" is quite interesting! I noticed: ${effectiveAnalysis}\n\nWhat aspects would you like to discuss?`,
+          `I just finished looking at your ${mediaType} "${effectiveFileName}" - here's what I found: ${effectiveAnalysis}\n\nWhat questions do you have about it?`,
+          `Your ${mediaType} "${effectiveFileName}" has some fascinating details! Here's what I observed: ${effectiveAnalysis}\n\nWhat would you like to know more about?`,
+          `I've been studying your ${mediaType} "${effectiveFileName}" and here's what I discovered: ${effectiveAnalysis}\n\nWhat can I help you understand about it?`,
+          `Wow, your ${mediaType} "${effectiveFileName}" is really something! Here's what stood out to me: ${effectiveAnalysis}\n\nWhat caught your attention about it?`,
+          `I just took a closer look at your ${mediaType} "${effectiveFileName}" and found some interesting things: ${effectiveAnalysis}\n\nWhat would you like to dive into?`,
+          `Your ${mediaType} "${effectiveFileName}" is quite compelling! I spotted: ${effectiveAnalysis}\n\nWhat aspects are you most curious about?`
+        ];
         
+        const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
         messages.push({
           role: 'assistant',
-          content: naturalContextMessage
+          content: randomContextPrompt
         });
       } else {
         console.log('❌ No media context', { 
@@ -655,20 +668,8 @@ function App() {
         });
       }
       
-      // Add conversation history with better context awareness
-      if (conversationHistory.length > 0) {
-        // If we have media context, ensure the conversation flows naturally
-        if (effectiveMediaContext && effectiveAnalysis) {
-          // Filter out any previous media context messages to avoid repetition
-          const filteredHistory = conversationHistory.filter(msg => 
-            !msg.content.includes('I can see your') && 
-            !msg.content.includes('Here\'s what I noticed')
-          );
-          messages.push(...filteredHistory);
-        } else {
-          messages.push(...conversationHistory);
-        }
-      }
+      // Add conversation history
+      messages.push(...conversationHistory);
       
       // Add current user message
       messages.push({ role: 'user', content: transcription || '' });
@@ -683,8 +684,8 @@ function App() {
         () => openai.chat.completions.create({
           model: 'gpt-3.5-turbo',
           messages: messages,
-          max_tokens: effectiveMediaContext ? 200 : 150, // Allow more tokens for image conversations
-          temperature: effectiveMediaContext ? 0.7 : 0.8 // Slightly lower temperature for more focused image responses
+          max_tokens: 150, // Reduced for faster response
+          temperature: 0.8
         }),
       );
       
@@ -1116,20 +1117,16 @@ useEffect(() => {
     // Build messages array with conversation history and media context
     const messages: any[] = [];
     
+    // Always add system prompt first
+    messages.push({
+      role: 'system',
+      content: 'You are a helpful, engaging AI assistant who loves discussing images and media. When talking about images, be conversational, curious, and encouraging. Ask follow-up questions naturally like "What do you think about...?" or "Have you noticed...?" or "Would you like to know more about...?". Keep responses under 100 words and make the conversation feel like you\'re genuinely interested in what the user is showing you. Use phrases like "That\'s interesting!" or "I can see why you\'d want to know about that!" to show engagement.'
+    });
+    
     // Add media analysis if available (check both state and ref)
     const effectiveMediaContext = hasMediaContext || mediaContextRef.current.hasContext;
     const effectiveAnalysis = currentMediaAnalysis || mediaContextRef.current.analysis;
     const effectiveFileName = mediaFileName || mediaContextRef.current.fileName;
-    
-    // Always add system prompt first - make it context-aware
-    const systemPrompt = effectiveMediaContext && effectiveAnalysis ? 
-      `You are a helpful AI assistant having a natural conversation about an image or media file. You can see and understand the content, and you're discussing it with the user in a friendly, conversational way. Keep responses under 100 words, be engaging and natural. Reference what you see in the image naturally in your responses.` :
-      'You are a witty AI assistant. Keep responses under 100 words, be engaging and conversational.';
-    
-    messages.push({
-      role: 'system',
-      content: systemPrompt
-    });
     
     if (effectiveMediaContext && effectiveAnalysis && effectiveFileName) {
       console.log('🎯 Media context is active for button!', { 
@@ -1145,12 +1142,22 @@ useEffect(() => {
                        fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                        fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
       
-      // Create a more natural, conversational context message
-      const naturalContextMessage = `I can see your ${mediaType} "${effectiveFileName}". ${effectiveAnalysis}`;
+      // Create more natural, conversational context messages
+      const contextPrompts = [
+        `I've been examining your ${mediaType} "${effectiveFileName}" and here's what caught my eye: ${effectiveAnalysis}\n\nWhat would you like to explore about it?`,
+        `Your ${mediaType} "${effectiveFileName}" is quite interesting! I noticed: ${effectiveAnalysis}\n\nWhat aspects would you like to discuss?`,
+        `I just finished looking at your ${mediaType} "${effectiveFileName}" - here's what I found: ${effectiveAnalysis}\n\nWhat questions do you have about it?`,
+        `Your ${mediaType} "${effectiveFileName}" has some fascinating details! Here's what I observed: ${effectiveAnalysis}\n\nWhat would you like to know more about?`,
+        `I've been studying your ${mediaType} "${effectiveFileName}" and here's what I discovered: ${effectiveAnalysis}\n\nWhat can I help you understand about it?`,
+        `Wow, your ${mediaType} "${effectiveFileName}" is really something! Here's what stood out to me: ${effectiveAnalysis}\n\nWhat caught your attention about it?`,
+        `I just took a closer look at your ${mediaType} "${effectiveFileName}" and found some interesting things: ${effectiveAnalysis}\n\nWhat would you like to dive into?`,
+        `Your ${mediaType} "${effectiveFileName}" is quite compelling! I spotted: ${effectiveAnalysis}\n\nWhat aspects are you most curious about?`
+      ];
       
+      const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
       messages.push({
         role: 'assistant',
-        content: naturalContextMessage
+        content: randomContextPrompt
       });
     } else {
       console.log('❌ No media context for button', { 
@@ -1161,20 +1168,8 @@ useEffect(() => {
       });
     }
     
-    // Add conversation history with better context awareness
-    if (conversationHistory.length > 0) {
-      // If we have media context, ensure the conversation flows naturally
-      if (effectiveMediaContext && effectiveAnalysis) {
-        // Filter out any previous media context messages to avoid repetition
-        const filteredHistory = conversationHistory.filter(msg => 
-          !msg.content.includes('I can see your') && 
-          !msg.content.includes('Here\'s what I noticed')
-        );
-        messages.push(...filteredHistory);
-      } else {
-        messages.push(...conversationHistory);
-      }
-    }
+    // Add conversation history
+    messages.push(...conversationHistory);
     
     // Add current user message
     messages.push({ role: 'user', content: selectedPrompt });
@@ -1183,8 +1178,8 @@ useEffect(() => {
       () => openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: messages,
-        max_tokens: effectiveMediaContext ? 200 : 150, // Allow more tokens for image conversations
-        temperature: effectiveMediaContext ? 0.7 : 0.8 // Slightly lower temperature for more focused image responses
+        max_tokens: 150, // Reduced for faster response
+        temperature: 0.8
       }),
       { timeout: 20000, retries: 2 }
     ).then((aiResponse: any) => {
