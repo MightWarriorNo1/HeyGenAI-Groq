@@ -45,13 +45,9 @@ function App() {
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
-  // Ref to track avatar speaking state for voice detection
+  // Interruption handling
   const isAvatarSpeakingRef = useRef<boolean>(false);
-  
-  // Flag to prevent new speech when user is talking
   const isUserInterruptingRef = useRef<boolean>(false);
-  
-  // Global interruption flag that persists across all operations
   const globalInterruptionRef = useRef<boolean>(false);
   
   // Response cache for faster repeated queries
@@ -133,39 +129,23 @@ function App() {
     // Clear the input to stop any pending speech
     setInput('');
     
-    // Try multiple methods to stop current avatar speech
+    // Try to stop current avatar speech
     if (avatar.current && data?.sessionId) {
       try {
-        // Method 1: Try to stop current speech
+        // Try to stop current speech using available methods
         if (typeof (avatar.current as any).stop === 'function') {
           console.log('🛑 Attempting to stop avatar speech via stop() method');
           (avatar.current as any).stop();
         }
         
-        // Method 2: Try to cancel current session
         if (typeof (avatar.current as any).cancel === 'function') {
           console.log('🛑 Attempting to cancel avatar speech via cancel() method');
           (avatar.current as any).cancel();
         }
         
-        // Method 3: Try to end current session
-        if (typeof (avatar.current as any).endSession === 'function') {
-          console.log('🛑 Attempting to end avatar session');
-          (avatar.current as any).endSession();
-        }
-        
       } catch (error) {
         console.log('Could not stop avatar speech:', error);
       }
-    }
-    
-    // Method 4: Force restart avatar session to stop all speech
-    try {
-      console.log('🛑 Force restarting avatar session to stop speech');
-      await grab(); // Restart the avatar session
-      console.log('🛑 Avatar session restarted successfully');
-    } catch (error) {
-      console.error('🛑 Failed to restart avatar session:', error);
     }
     
     console.log('🛑 Interruption completed - avatar should now be silent');
@@ -177,7 +157,7 @@ function App() {
         isUserInterruptingRef.current = false;
         globalInterruptionRef.current = false;
       }
-    }, 10000); // 10 second timeout
+    }, 5000); // 5 second timeout
   };
 
   // Function to process analysis queue with reduced latency
@@ -353,9 +333,6 @@ function App() {
               mediaFileName,
               isAvatarSpeaking
             });
-            
-            // Note: Interruption is now handled above in the separate check
-            
             isRecording = true;
             silenceStart = null;
             
@@ -628,7 +605,7 @@ function App() {
           return;
         }
         
-        const prompt = `Analyze this text file "${file.name}":\n\n${fileContent}\n\nProvide key insights.`;
+        const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
         
         aiResponse = await createApiCall(
           () => openai.chat.completions.create({
@@ -643,7 +620,7 @@ function App() {
 
       } else {
         // For other file types, provide basic analysis
-        const prompt = `File: ${file.name} (${file.type}). What can I do with this file?`;
+        const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
         
         aiResponse = await createApiCall(
           () => openai.chat.completions.create({
@@ -805,10 +782,10 @@ function App() {
       // Build messages array with conversation history and media context
       const messages: any[] = [];
       
-      // Always add system prompt first (optimized for fewer tokens)
+      // Always add system prompt first
       messages.push({
         role: 'system',
-        content: 'You are a helpful AI assistant. Be conversational, curious, and engaging. Keep responses under 150 words. When discussing media, be specific and ask follow-up questions.'
+        content: 'You are an intelligent, conversational AI assistant with a warm and engaging personality. Think of yourself as a knowledgeable friend who loves to chat and explore ideas together. Be genuinely curious, ask thoughtful questions, and show real interest in what the user is sharing. When discussing images or media, be specific about what you notice and ask engaging follow-up questions. Use natural language patterns, show personality, and make the conversation flow smoothly. Be helpful, insightful, and encouraging. Keep responses conversational and under 150 words, but don\'t be afraid to show enthusiasm and intelligence.'
       });
       
       // Add media analysis if available (check both state and ref)
@@ -830,12 +807,16 @@ function App() {
                          fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                          fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
         
-        // Create concise context messages (optimized for fewer tokens)
+        // Create more natural, ChatGPT-like context messages
         const contextPrompts = [
-          `I analyzed your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat would you like to explore?`,
-          `Your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat interests you most?`,
-          `I examined your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat questions do you have?`,
-          `This ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat would you like to discuss?`
+          `I just took a look at your ${mediaType} "${effectiveFileName}" - this is really interesting! ${effectiveAnalysis}\n\nI'm curious, what drew you to this ${mediaType}? What would you like to explore about it?`,
+          `Your ${mediaType} "${effectiveFileName}" caught my attention! Here's what I'm seeing: ${effectiveAnalysis}\n\nWhat aspects are you most interested in discussing?`,
+          `I've been examining your ${mediaType} "${effectiveFileName}" and I'm genuinely impressed. ${effectiveAnalysis}\n\nWhat questions do you have about it? I'd love to dive deeper into whatever interests you most.`,
+          `This ${mediaType} "${effectiveFileName}" is fascinating! ${effectiveAnalysis}\n\nWhat made you choose this particular ${mediaType}? I'm excited to explore it with you.`,
+          `I just finished analyzing your ${mediaType} "${effectiveFileName}" and wow, there's a lot to unpack here! ${effectiveAnalysis}\n\nWhat would you like to focus on? I'm here to help you understand or explore any aspect that interests you.`,
+          `Your ${mediaType} "${effectiveFileName}" is really compelling! ${effectiveAnalysis}\n\nI'm genuinely curious - what's your connection to this? What would you like to know more about?`,
+          `I've been studying your ${mediaType} "${effectiveFileName}" and I'm finding it quite engaging. ${effectiveAnalysis}\n\nWhat sparked your interest in this? I'd love to hear your thoughts and explore it together.`,
+          `This ${mediaType} "${effectiveFileName}" is quite something! ${effectiveAnalysis}\n\nWhat aspects are you most curious about? I'm here to help you understand or discuss whatever interests you most.`
         ];
         
         const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
@@ -852,18 +833,13 @@ function App() {
         });
       }
       
-      // Add conversation history (limit to last 6 messages to control token usage)
-      const limitedHistory = conversationHistory.slice(-6);
-      messages.push(...limitedHistory);
+      // Add conversation history
+      messages.push(...conversationHistory);
       
       // Add current user message
       messages.push({ role: 'user', content: transcription || '' });
       
-      // Count approximate tokens for monitoring
-      const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
-      const estimatedTokens = Math.ceil(totalChars / 4); // Rough estimate: 4 chars per token
       console.log('📤 Sending messages to OpenAI:', messages);
-      console.log(`📊 Token estimate: ~${estimatedTokens} tokens (${totalChars} characters)`);
       
       // Update conversation history
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
@@ -1416,17 +1392,11 @@ useEffect(() => {
       });
     }
     
-    // Add conversation history (limit to last 6 messages to control token usage)
-    const limitedHistory = conversationHistory.slice(-6);
-    messages.push(...limitedHistory);
+    // Add conversation history
+    messages.push(...conversationHistory);
     
     // Add current user message
     messages.push({ role: 'user', content: selectedPrompt });
-    
-    // Count approximate tokens for monitoring
-    const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
-    const estimatedTokens = Math.ceil(totalChars / 4); // Rough estimate: 4 chars per token
-    console.log(`📊 Token estimate: ~${estimatedTokens} tokens (${totalChars} characters)`);
     
     createApiCall(
       () => openai.chat.completions.create({
