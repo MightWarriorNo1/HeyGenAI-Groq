@@ -48,6 +48,9 @@ function App() {
   // Ref to track avatar speaking state for voice detection
   const isAvatarSpeakingRef = useRef<boolean>(false);
   
+  // Flag to prevent new speech when user is talking
+  const isUserInterruptingRef = useRef<boolean>(false);
+  
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
   
@@ -111,6 +114,11 @@ function App() {
   // Function to interrupt avatar speech when user starts talking
   const interruptAvatarSpeech = () => {
     console.log('🛑 Interrupting avatar speech to listen to user!');
+    
+    // Set interruption flag to prevent new speech
+    isUserInterruptingRef.current = true;
+    
+    // Immediately set speaking state to false
     setIsAvatarSpeaking(false);
     isAvatarSpeakingRef.current = false;
     
@@ -118,22 +126,55 @@ function App() {
     analysisQueueRef.current = [];
     isProcessingQueueRef.current = false;
     
-    // Try to stop current avatar speech if possible
+    // Clear the input to stop any pending speech
+    setInput('');
+    
+    // Try multiple methods to stop current avatar speech
     if (avatar.current && data?.sessionId) {
       try {
-        // Try to stop current speech (this may not be available in all APIs)
+        // Method 1: Try to stop current speech
         if (typeof (avatar.current as any).stop === 'function') {
+          console.log('🛑 Attempting to stop avatar speech via stop() method');
           (avatar.current as any).stop();
         }
+        
+        // Method 2: Try to cancel current session
+        if (typeof (avatar.current as any).cancel === 'function') {
+          console.log('🛑 Attempting to cancel avatar speech via cancel() method');
+          (avatar.current as any).cancel();
+        }
+        
+        // Method 3: Try to end current session
+        if (typeof (avatar.current as any).endSession === 'function') {
+          console.log('🛑 Attempting to end avatar session');
+          (avatar.current as any).endSession();
+        }
+        
       } catch (error) {
         console.log('Could not stop avatar speech:', error);
       }
     }
+    
+    console.log('🛑 Interruption completed - avatar should now be silent');
+    
+    // Reset interruption flag after a timeout to prevent permanent blocking
+    setTimeout(() => {
+      if (isUserInterruptingRef.current) {
+        console.log('🛑 Resetting interruption flag after timeout');
+        isUserInterruptingRef.current = false;
+      }
+    }, 10000); // 10 second timeout
   };
 
   // Function to process analysis queue with reduced latency
   const processAnalysisQueue = async () => {
     if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) return;
+    
+    // Check if user is interrupting - don't process queue
+    if (isUserInterruptingRef.current) {
+      console.log('🛑 Skipping analysis queue - user is interrupting');
+      return;
+    }
     
     isProcessingQueueRef.current = true;
     const analysis = analysisQueueRef.current.shift();
@@ -680,6 +721,9 @@ function App() {
       }
 
       console.log('🎤 Transcription successful:', transcription);
+      
+      // Reset interruption flag since user has finished speaking
+      isUserInterruptingRef.current = false;
 
       // Check if user is asking about vision/camera analysis
       const visionKeywords = [
@@ -866,6 +910,12 @@ function App() {
   useEffect(() => {
     async function speak() {
       if (!input || !avatar.current || !data?.sessionId) return;
+      
+      // Check if user is interrupting - don't start new speech
+      if (isUserInterruptingRef.current) {
+        console.log('🛑 Skipping avatar speech - user is interrupting');
+        return;
+      }
       
       try {
         console.log('🎭 Avatar starting to speak:', input);
