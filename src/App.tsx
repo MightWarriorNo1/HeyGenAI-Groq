@@ -115,7 +115,7 @@ function App() {
   };
 
   // Function to interrupt avatar speech when user starts talking
-  const interruptAvatarSpeech = () => {
+  const interruptAvatarSpeech = async () => {
     console.log('🛑 Interrupting avatar speech to listen to user!');
     
     // Set interruption flags to prevent new speech
@@ -157,6 +157,15 @@ function App() {
       } catch (error) {
         console.log('Could not stop avatar speech:', error);
       }
+    }
+    
+    // Method 4: Force restart avatar session to stop all speech
+    try {
+      console.log('🛑 Force restarting avatar session to stop speech');
+      await grab(); // Restart the avatar session
+      console.log('🛑 Avatar session restarted successfully');
+    } catch (error) {
+      console.error('🛑 Failed to restart avatar session:', error);
     }
     
     console.log('🛑 Interruption completed - avatar should now be silent');
@@ -319,7 +328,9 @@ function App() {
               isRecording,
               isAvatarSpeaking: isAvatarSpeakingRef.current
             });
-            interruptAvatarSpeech();
+            interruptAvatarSpeech().catch(error => {
+              console.error('🛑 Error during interruption:', error);
+            });
           }
 
           // Add more detailed logging for debugging
