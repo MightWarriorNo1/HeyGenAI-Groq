@@ -45,6 +45,9 @@ function App() {
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
   
+  // Ref to track avatar speaking state for voice detection
+  const isAvatarSpeakingRef = useRef<boolean>(false);
+  
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
   
@@ -109,6 +112,7 @@ function App() {
   const interruptAvatarSpeech = () => {
     console.log('🛑 Interrupting avatar speech to listen to user!');
     setIsAvatarSpeaking(false);
+    isAvatarSpeakingRef.current = false;
     
     // Clear any pending analysis queue
     analysisQueueRef.current = [];
@@ -138,6 +142,7 @@ function App() {
       try {
         console.log('🎭 Processing analysis queue - Avatar starting to speak:', analysis);
         setIsAvatarSpeaking(true);
+        isAvatarSpeakingRef.current = true;
         
         // Start speaking immediately without waiting
         const speakPromise = avatar.current.speak({ 
@@ -153,6 +158,7 @@ function App() {
           // Reduced delay - only wait for speech to complete
           setTimeout(() => {
             setIsAvatarSpeaking(false);
+            isAvatarSpeakingRef.current = false;
             isProcessingQueueRef.current = false;
             // Process next item immediately if available
             if (analysisQueueRef.current.length > 0) {
@@ -162,12 +168,14 @@ function App() {
         }).catch((speakError) => {
           console.error('Error making avatar speak:', speakError);
           setIsAvatarSpeaking(false);
+          isAvatarSpeakingRef.current = false;
           isProcessingQueueRef.current = false;
         });
         
       } catch (speakError) {
         console.error('Error making avatar speak:', speakError);
         setIsAvatarSpeaking(false);
+        isAvatarSpeakingRef.current = false;
         isProcessingQueueRef.current = false;
       }
     } else {
@@ -247,14 +255,25 @@ function App() {
           analyser.getByteFrequencyData(dataArray);
           const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
 
+          // Always check for interruption when avatar is speaking, regardless of recording state
+          if (isAvatarSpeakingRef.current && avgVolume > voiceThreshold) {
+            console.log('🛑 User voice detected while avatar is speaking - interrupting!', {
+              avgVolume,
+              threshold: voiceThreshold,
+              isRecording,
+              isAvatarSpeaking: isAvatarSpeakingRef.current
+            });
+            interruptAvatarSpeech();
+          }
+
           // Add more detailed logging for debugging
           if (avgVolume > voiceThreshold * 0.5) { // Log when approaching threshold
             console.log('🎤 Voice activity detected:', { 
               avgVolume, 
               threshold: voiceThreshold, 
               isRecording, 
-              isAvatarSpeaking,
-              willInterrupt: isAvatarSpeaking && avgVolume > voiceThreshold
+              isAvatarSpeaking: isAvatarSpeakingRef.current,
+              willInterrupt: isAvatarSpeakingRef.current && avgVolume > voiceThreshold
             });
           }
 
@@ -268,10 +287,7 @@ function App() {
               isAvatarSpeaking
             });
             
-            // If avatar is speaking, interrupt it to listen to user
-            if (isAvatarSpeaking) {
-              interruptAvatarSpeech();
-            }
+            // Note: Interruption is now handled above in the separate check
             
             isRecording = true;
             silenceStart = null;
@@ -545,7 +561,7 @@ function App() {
           return;
         }
         
-        const prompt = `I've uploaded a text file: ${file.name}. Here's the content:\n\n${fileContent}\n\nPlease analyze this content and provide insights or help with it.`;
+        const prompt = `Analyze this text file "${file.name}":\n\n${fileContent}\n\nProvide key insights.`;
         
         aiResponse = await createApiCall(
           () => openai.chat.completions.create({
@@ -560,7 +576,7 @@ function App() {
 
       } else {
         // For other file types, provide basic analysis
-        const prompt = `I've uploaded a file: ${file.name} (${file.type}). Please help me understand what I can do with this file and provide any relevant guidance.`;
+        const prompt = `File: ${file.name} (${file.type}). What can I do with this file?`;
         
         aiResponse = await createApiCall(
           () => openai.chat.completions.create({
@@ -718,10 +734,10 @@ function App() {
       // Build messages array with conversation history and media context
       const messages: any[] = [];
       
-      // Always add system prompt first
+      // Always add system prompt first (optimized for fewer tokens)
       messages.push({
         role: 'system',
-        content: 'You are an intelligent, conversational AI assistant with a warm and engaging personality. Think of yourself as a knowledgeable friend who loves to chat and explore ideas together. Be genuinely curious, ask thoughtful questions, and show real interest in what the user is sharing. When discussing images or media, be specific about what you notice and ask engaging follow-up questions. Use natural language patterns, show personality, and make the conversation flow smoothly. Be helpful, insightful, and encouraging. Keep responses conversational and under 150 words, but don\'t be afraid to show enthusiasm and intelligence.'
+        content: 'You are a helpful AI assistant. Be conversational, curious, and engaging. Keep responses under 150 words. When discussing media, be specific and ask follow-up questions.'
       });
       
       // Add media analysis if available (check both state and ref)
@@ -743,16 +759,12 @@ function App() {
                          fileType && ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileType) ? 'video' :
                          fileType && ['txt', 'pdf', 'doc', 'docx'].includes(fileType) ? 'document' : 'file';
         
-        // Create more natural, ChatGPT-like context messages
+        // Create concise context messages (optimized for fewer tokens)
         const contextPrompts = [
-          `I just took a look at your ${mediaType} "${effectiveFileName}" - this is really interesting! ${effectiveAnalysis}\n\nI'm curious, what drew you to this ${mediaType}? What would you like to explore about it?`,
-          `Your ${mediaType} "${effectiveFileName}" caught my attention! Here's what I'm seeing: ${effectiveAnalysis}\n\nWhat aspects are you most interested in discussing?`,
-          `I've been examining your ${mediaType} "${effectiveFileName}" and I'm genuinely impressed. ${effectiveAnalysis}\n\nWhat questions do you have about it? I'd love to dive deeper into whatever interests you most.`,
-          `This ${mediaType} "${effectiveFileName}" is fascinating! ${effectiveAnalysis}\n\nWhat made you choose this particular ${mediaType}? I'm excited to explore it with you.`,
-          `I just finished analyzing your ${mediaType} "${effectiveFileName}" and wow, there's a lot to unpack here! ${effectiveAnalysis}\n\nWhat would you like to focus on? I'm here to help you understand or explore any aspect that interests you.`,
-          `Your ${mediaType} "${effectiveFileName}" is really compelling! ${effectiveAnalysis}\n\nI'm genuinely curious - what's your connection to this? What would you like to know more about?`,
-          `I've been studying your ${mediaType} "${effectiveFileName}" and I'm finding it quite engaging. ${effectiveAnalysis}\n\nWhat sparked your interest in this? I'd love to hear your thoughts and explore it together.`,
-          `This ${mediaType} "${effectiveFileName}" is quite something! ${effectiveAnalysis}\n\nWhat aspects are you most curious about? I'm here to help you understand or discuss whatever interests you most.`
+          `I analyzed your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat would you like to explore?`,
+          `Your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat interests you most?`,
+          `I examined your ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat questions do you have?`,
+          `This ${mediaType} "${effectiveFileName}": ${effectiveAnalysis}\n\nWhat would you like to discuss?`
         ];
         
         const randomContextPrompt = contextPrompts[Math.floor(Math.random() * contextPrompts.length)];
@@ -769,13 +781,18 @@ function App() {
         });
       }
       
-      // Add conversation history
-      messages.push(...conversationHistory);
+      // Add conversation history (limit to last 6 messages to control token usage)
+      const limitedHistory = conversationHistory.slice(-6);
+      messages.push(...limitedHistory);
       
       // Add current user message
       messages.push({ role: 'user', content: transcription || '' });
       
+      // Count approximate tokens for monitoring
+      const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+      const estimatedTokens = Math.ceil(totalChars / 4); // Rough estimate: 4 chars per token
       console.log('📤 Sending messages to OpenAI:', messages);
+      console.log(`📊 Token estimate: ~${estimatedTokens} tokens (${totalChars} characters)`);
       
       // Update conversation history
       const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
@@ -853,6 +870,7 @@ function App() {
       try {
         console.log('🎭 Avatar starting to speak:', input);
         setIsAvatarSpeaking(true);
+        isAvatarSpeakingRef.current = true;
         
         // Start speaking immediately without waiting for completion
         const speakPromise = avatar.current.speak({ 
@@ -866,14 +884,17 @@ function App() {
         speakPromise.then(() => {
           console.log('🎭 Avatar finished speaking');
           setIsAvatarSpeaking(false);
+          isAvatarSpeakingRef.current = false;
         }).catch((err: any) => {
           console.error('Avatar speak error:', err);
           setIsAvatarSpeaking(false);
+          isAvatarSpeakingRef.current = false;
         });
         
       } catch (err: any) {
         console.error('Avatar speak setup error:', err);
         setIsAvatarSpeaking(false);
+        isAvatarSpeakingRef.current = false;
       }
     }
 
@@ -1309,11 +1330,17 @@ useEffect(() => {
       });
     }
     
-    // Add conversation history
-    messages.push(...conversationHistory);
+    // Add conversation history (limit to last 6 messages to control token usage)
+    const limitedHistory = conversationHistory.slice(-6);
+    messages.push(...limitedHistory);
     
     // Add current user message
     messages.push({ role: 'user', content: selectedPrompt });
+    
+    // Count approximate tokens for monitoring
+    const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+    const estimatedTokens = Math.ceil(totalChars / 4); // Rough estimate: 4 chars per token
+    console.log(`📊 Token estimate: ~${estimatedTokens} tokens (${totalChars} characters)`);
     
     createApiCall(
       () => openai.chat.completions.create({
