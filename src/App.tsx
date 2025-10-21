@@ -51,6 +51,9 @@ function App() {
   // Flag to prevent new speech when user is talking
   const isUserInterruptingRef = useRef<boolean>(false);
   
+  // Global interruption flag that persists across all operations
+  const globalInterruptionRef = useRef<boolean>(false);
+  
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
   
@@ -115,8 +118,9 @@ function App() {
   const interruptAvatarSpeech = () => {
     console.log('🛑 Interrupting avatar speech to listen to user!');
     
-    // Set interruption flag to prevent new speech
+    // Set interruption flags to prevent new speech
     isUserInterruptingRef.current = true;
+    globalInterruptionRef.current = true;
     
     // Immediately set speaking state to false
     setIsAvatarSpeaking(false);
@@ -157,11 +161,12 @@ function App() {
     
     console.log('🛑 Interruption completed - avatar should now be silent');
     
-    // Reset interruption flag after a timeout to prevent permanent blocking
+    // Reset interruption flags after a timeout to prevent permanent blocking
     setTimeout(() => {
-      if (isUserInterruptingRef.current) {
-        console.log('🛑 Resetting interruption flag after timeout');
+      if (isUserInterruptingRef.current || globalInterruptionRef.current) {
+        console.log('🛑 Resetting interruption flags after timeout');
         isUserInterruptingRef.current = false;
+        globalInterruptionRef.current = false;
       }
     }, 10000); // 10 second timeout
   };
@@ -171,7 +176,7 @@ function App() {
     if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) return;
     
     // Check if user is interrupting - don't process queue
-    if (isUserInterruptingRef.current) {
+    if (isUserInterruptingRef.current || globalInterruptionRef.current) {
       console.log('🛑 Skipping analysis queue - user is interrupting');
       return;
     }
@@ -196,6 +201,16 @@ function App() {
         // Process next item in queue immediately after starting speech
         speakPromise.then(() => {
           console.log('🎭 Analysis queue speech completed');
+          
+          // Check if user interrupted during speech - don't continue if interrupted
+          if (globalInterruptionRef.current) {
+            console.log('🛑 Analysis queue speech completed but user interrupted - not continuing');
+            setIsAvatarSpeaking(false);
+            isAvatarSpeakingRef.current = false;
+            isProcessingQueueRef.current = false;
+            return;
+          }
+          
           // Reduced delay - only wait for speech to complete
           setTimeout(() => {
             setIsAvatarSpeaking(false);
@@ -722,8 +737,9 @@ function App() {
 
       console.log('🎤 Transcription successful:', transcription);
       
-      // Reset interruption flag since user has finished speaking
+      // Reset interruption flags since user has finished speaking
       isUserInterruptingRef.current = false;
+      globalInterruptionRef.current = false;
 
       // Check if user is asking about vision/camera analysis
       const visionKeywords = [
@@ -912,7 +928,7 @@ function App() {
       if (!input || !avatar.current || !data?.sessionId) return;
       
       // Check if user is interrupting - don't start new speech
-      if (isUserInterruptingRef.current) {
+      if (isUserInterruptingRef.current || globalInterruptionRef.current) {
         console.log('🛑 Skipping avatar speech - user is interrupting');
         return;
       }
@@ -933,6 +949,15 @@ function App() {
         // Handle completion and errors
         speakPromise.then(() => {
           console.log('🎭 Avatar finished speaking');
+          
+          // Check if user interrupted during speech - don't continue if interrupted
+          if (globalInterruptionRef.current) {
+            console.log('🛑 Avatar speech completed but user interrupted - not continuing');
+            setIsAvatarSpeaking(false);
+            isAvatarSpeakingRef.current = false;
+            return;
+          }
+          
           setIsAvatarSpeaking(false);
           isAvatarSpeakingRef.current = false;
         }).catch((err: any) => {
