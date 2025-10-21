@@ -417,7 +417,7 @@ function App() {
                 ]
               }
             ],
-            max_tokens: 1000
+            max_tokens: 300
           }),
           { timeout: 60000, retries: 2 }
         );
@@ -492,7 +492,7 @@ function App() {
                 ]
               }
             ],
-            max_tokens: 1000
+            max_tokens: 300
           }),
           { timeout: 60000, retries: 2 }
         );
@@ -516,7 +516,7 @@ function App() {
             messages: [
               { role: 'user', content: prompt }
             ],
-            max_tokens: 2000
+            max_tokens: 300
           }),
           { timeout: 30000, retries: 2 }
         );
@@ -531,7 +531,7 @@ function App() {
             messages: [
               { role: 'user', content: prompt }
             ],
-            max_tokens: 1000
+            max_tokens: 300
           }),
           { timeout: 30000, retries: 2 }
         );
@@ -1089,7 +1089,7 @@ const handleMotionStopped = async () => {
               ]
             }
           ],
-          max_tokens: 1000,
+          max_tokens: 300,   
           stream: true // Enable streaming for faster response
         });
         
