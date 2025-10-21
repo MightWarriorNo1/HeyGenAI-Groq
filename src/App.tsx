@@ -217,7 +217,7 @@ function App() {
         let isRecording = false;
         let silenceStart: number | null = null;
         const silenceTimeout = 1500; // 1.5 seconds of silence (increased for better reliability)
-        const voiceThreshold = 25; // Lowered voice detection threshold for better sensitivity
+        const voiceThreshold = 40; // Lowered voice detection threshold for better sensitivity
 
         const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
