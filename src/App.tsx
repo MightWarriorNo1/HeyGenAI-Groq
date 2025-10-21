@@ -105,6 +105,28 @@ function App() {
     }
   };
 
+  // Function to interrupt avatar speech when user starts talking
+  const interruptAvatarSpeech = () => {
+    console.log('🛑 Interrupting avatar speech to listen to user!');
+    setIsAvatarSpeaking(false);
+    
+    // Clear any pending analysis queue
+    analysisQueueRef.current = [];
+    isProcessingQueueRef.current = false;
+    
+    // Try to stop current avatar speech if possible
+    if (avatar.current && data?.sessionId) {
+      try {
+        // Try to stop current speech (this may not be available in all APIs)
+        if (typeof (avatar.current as any).stop === 'function') {
+          (avatar.current as any).stop();
+        }
+      } catch (error) {
+        console.log('Could not stop avatar speech:', error);
+      }
+    }
+  };
+
   // Function to process analysis queue with reduced latency
   const processAnalysisQueue = async () => {
     if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) return;
@@ -114,6 +136,7 @@ function App() {
     
     if (analysis && avatar.current && data?.sessionId) {
       try {
+        console.log('🎭 Processing analysis queue - Avatar starting to speak:', analysis);
         setIsAvatarSpeaking(true);
         
         // Start speaking immediately without waiting
@@ -126,6 +149,7 @@ function App() {
         
         // Process next item in queue immediately after starting speech
         speakPromise.then(() => {
+          console.log('🎭 Analysis queue speech completed');
           // Reduced delay - only wait for speech to complete
           setTimeout(() => {
             setIsAvatarSpeaking(false);
@@ -225,7 +249,13 @@ function App() {
 
           // Add more detailed logging for debugging
           if (avgVolume > voiceThreshold * 0.5) { // Log when approaching threshold
-            console.log('🎤 Voice activity detected:', { avgVolume, threshold: voiceThreshold, isRecording });
+            console.log('🎤 Voice activity detected:', { 
+              avgVolume, 
+              threshold: voiceThreshold, 
+              isRecording, 
+              isAvatarSpeaking,
+              willInterrupt: isAvatarSpeaking && avgVolume > voiceThreshold
+            });
           }
 
           if (avgVolume > voiceThreshold && !isRecording) {
@@ -234,8 +264,15 @@ function App() {
               avgVolume, 
               threshold: voiceThreshold,
               hasMediaContext,
-              mediaFileName 
+              mediaFileName,
+              isAvatarSpeaking
             });
+            
+            // If avatar is speaking, interrupt it to listen to user
+            if (isAvatarSpeaking) {
+              interruptAvatarSpeech();
+            }
+            
             isRecording = true;
             silenceStart = null;
             
@@ -814,6 +851,9 @@ function App() {
       if (!input || !avatar.current || !data?.sessionId) return;
       
       try {
+        console.log('🎭 Avatar starting to speak:', input);
+        setIsAvatarSpeaking(true);
+        
         // Start speaking immediately without waiting for completion
         const speakPromise = avatar.current.speak({ 
           taskRequest: { 
@@ -822,13 +862,18 @@ function App() {
           } 
         });
         
-        // Don't await - let it run in background for faster response
-        speakPromise.catch((err: any) => {
+        // Handle completion and errors
+        speakPromise.then(() => {
+          console.log('🎭 Avatar finished speaking');
+          setIsAvatarSpeaking(false);
+        }).catch((err: any) => {
           console.error('Avatar speak error:', err);
+          setIsAvatarSpeaking(false);
         });
         
       } catch (err: any) {
         console.error('Avatar speak setup error:', err);
+        setIsAvatarSpeaking(false);
       }
     }
 
