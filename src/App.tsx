@@ -26,6 +26,9 @@ function App() {
   const [data, setData] = useState<NewSessionData>();
   const mediaStream = useRef<HTMLVideoElement>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
+  
+  // Ref to store sessionId for immediate access in voice detection
+  const sessionIdRef = useRef<string | null>(null);
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
@@ -36,7 +39,17 @@ function App() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState<boolean>(false);
+  const [isUserTalking, setIsUserTalking] = useState<boolean>(false);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  
+  // Ref to track actual speaking state to prevent race conditions
+  const isAvatarSpeakingRef = useRef<boolean>(false);
+  const speakingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioDetectionRef = useRef<boolean>(false);
+  
+  // Ref to track current camera state for voice detection
+  const cameraStateRef = useRef<boolean>(false);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   
   // Pre-warm avatar for faster response
   const preWarmAvatar = useRef<boolean>(false);
@@ -44,11 +57,6 @@ function App() {
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const analysisQueueRef = useRef<string[]>([]);
   const isProcessingQueueRef = useRef<boolean>(false);
-  
-  // Interruption handling
-  const isAvatarSpeakingRef = useRef<boolean>(false);
-  const isUserInterruptingRef = useRef<boolean>(false);
-  const globalInterruptionRef = useRef<boolean>(false);
   
   // Response cache for faster repeated queries
   const responseCache = useRef<Map<string, string>>(new Map());
@@ -77,6 +85,337 @@ function App() {
   const gainNodeRef = useRef<GainNode | null>(null);
   const [volumeLevel] = useState<number>(2.0); // Default to 2x volume boost
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+
+  // Function to detect when avatar actually stops speaking
+  const detectAvatarAudioStop = () => {
+    if (!mediaStream.current || !isAvatarSpeakingRef.current) return;
+    
+    console.log('🎭 Starting audio detection for avatar speech');
+    audioDetectionRef.current = true;
+    
+    const checkAudioLevel = () => {
+      if (!audioDetectionRef.current || !isAvatarSpeakingRef.current) return;
+      
+      try {
+        // Get the video element that contains the avatar audio
+        const video = mediaStream.current;
+        if (video) {
+          // Check multiple conditions to determine if avatar stopped speaking
+          const isPlaying = !video.paused && !video.ended && video.readyState > 2;
+          const isMuted = video.muted;
+          const volume = video.volume;
+          
+          console.log('🎭 Audio detection check:', {
+            isPlaying,
+            isMuted,
+            volume,
+            readyState: video.readyState,
+            paused: video.paused,
+            ended: video.ended
+          });
+          
+          // Avatar stopped speaking if:
+          // 1. Video is not playing, OR
+          // 2. Video is muted, OR  
+          // 3. Volume is 0, OR
+          // 4. Video has ended
+          if (!isPlaying || isMuted || volume === 0 || video.ended) {
+            console.log('🎭 Audio detection: Avatar stopped speaking', {
+              reason: !isPlaying ? 'video not playing' : 
+                      isMuted ? 'video muted' : 
+                      volume === 0 ? 'volume is 0' : 'video ended'
+            });
+            audioDetectionRef.current = false;
+            isAvatarSpeakingRef.current = false;
+            setIsAvatarSpeaking(false);
+            emitEvent('AVATAR_STOP_TALKING');
+            return;
+          }
+        }
+        
+        // Continue checking every 500ms
+        setTimeout(checkAudioLevel, 500);
+      } catch (error) {
+        console.error('🎭 Audio detection error:', error);
+        // Fallback to timer-based approach
+        audioDetectionRef.current = false;
+        console.log('🎭 Audio detection failed, falling back to timer-based approach');
+      }
+    };
+    
+    // Start checking after a short delay
+    setTimeout(checkAudioLevel, 1000);
+  };
+
+  // Function to manually reset avatar speaking state (for debugging and recovery)
+  const resetAvatarSpeakingState = () => {
+    console.log('🎭 Manually resetting avatar speaking state');
+    audioDetectionRef.current = false;
+    if (speakingTimerRef.current) {
+      clearTimeout(speakingTimerRef.current);
+      speakingTimerRef.current = null;
+    }
+    isAvatarSpeakingRef.current = false;
+    setIsAvatarSpeaking(false);
+    emitEvent('AVATAR_STOP_TALKING');
+  };
+
+  // Avatar control methods
+  const startAvatarSpeaking = async (text: string) => {
+    if (!avatar.current || !sessionIdRef.current) {
+      console.log('🎭 Cannot start avatar speech - missing requirements:', {
+        hasAvatar: !!avatar.current,
+        hasSessionId: !!sessionIdRef.current,
+        sessionId: sessionIdRef.current
+      });
+      return;
+    }
+    
+    try {
+      console.log('🎭 Starting avatar speech:', text);
+      console.log('🎭 Using session ID:', sessionIdRef.current);
+      
+      // Set speaking state immediately when speech starts
+      isAvatarSpeakingRef.current = true;
+      setIsAvatarSpeaking(true);
+      console.log('🎭 Avatar speaking state set to true immediately');
+      
+      // Restore audio if it was muted
+      if (mediaStream.current) {
+        mediaStream.current.muted = false;
+        mediaStream.current.volume = 1.0;
+        console.log('🎭 Avatar audio restored');
+      }
+      
+      // Start the speech
+      const speakPromise = avatar.current.speak({ 
+        taskRequest: { 
+          text: text, 
+          sessionId: sessionIdRef.current! 
+        } 
+      });
+      
+      // Calculate minimum speaking duration based on text length
+      const wordsPerSecond = 1.5; // Much slower speaking speed for more realistic timing
+      const wordCount = text.split(' ').length;
+      const estimatedDuration = Math.max(20000, (wordCount / wordsPerSecond) * 1000); // At least 20 seconds
+      
+      console.log(`🎭 Estimated speaking duration: ${estimatedDuration}ms for ${wordCount} words`);
+      
+      // Clear any existing timer
+      if (speakingTimerRef.current) {
+        clearTimeout(speakingTimerRef.current);
+      }
+      
+      // Set up a timer that will disable speaking after the estimated duration (fallback)
+      speakingTimerRef.current = setTimeout(() => {
+        console.log('🎭 Avatar speaking timer expired - setting to false (fallback)');
+        isAvatarSpeakingRef.current = false;
+        setIsAvatarSpeaking(false);
+        speakingTimerRef.current = null;
+        audioDetectionRef.current = false;
+        emitEvent('AVATAR_STOP_TALKING');
+      }, estimatedDuration);
+      
+      // Start audio detection
+      detectAvatarAudioStop();
+      
+      // Handle speech completion - but don't immediately stop, let audio detection handle it
+      speakPromise.then(() => {
+        console.log('🎭 Avatar speech promise resolved - audio detection will handle actual stop');
+        // Don't set to false here - let audio detection handle it
+      }).catch((err: any) => {
+        console.error('Avatar speak error:', err);
+        if (speakingTimerRef.current) {
+          clearTimeout(speakingTimerRef.current);
+          speakingTimerRef.current = null;
+        }
+        audioDetectionRef.current = false;
+        isAvatarSpeakingRef.current = false;
+        setIsAvatarSpeaking(false);
+        emitEvent('AVATAR_STOP_TALKING');
+      });
+      
+      // Add a backup mechanism to ensure state is cleared even if audio detection fails
+      // This will run after the estimated duration + 5 seconds as a safety net
+      setTimeout(() => {
+        if (isAvatarSpeakingRef.current) {
+          console.log('🎭 Backup mechanism: Force clearing speaking state after timeout');
+          audioDetectionRef.current = false;
+          isAvatarSpeakingRef.current = false;
+          setIsAvatarSpeaking(false);
+          emitEvent('AVATAR_STOP_TALKING');
+        }
+      }, estimatedDuration + 5000); // 5 seconds after estimated duration
+      
+      return speakPromise;
+    } catch (err: any) {
+      console.error('Avatar speak setup error:', err);
+      isAvatarSpeakingRef.current = false;
+      setIsAvatarSpeaking(false);
+      emitEvent('AVATAR_STOP_TALKING');
+    }
+  };
+
+  const stopAvatarSpeaking = async () => {
+    if (isAvatarSpeakingRef.current) {
+      console.log('🎭 Manually stopping avatar speech');
+      
+      try {
+        // Use the proper HeyGen API method to stop avatar
+        if (avatar.current && typeof avatar.current.stopAvatar === 'function' && sessionIdRef.current) {
+          await avatar.current.stopAvatar({ 
+            stopSessionRequest: { 
+              sessionId: sessionIdRef.current 
+            } 
+          });
+          console.log('🎭 Called avatar.stopAvatar() - avatar should stop speaking');
+        } else {
+          console.log('🎭 stopAvatar method not available or sessionId missing, using audio muting workaround');
+          // Fallback to muting if method not available
+          if (mediaStream.current) {
+            mediaStream.current.muted = true;
+            mediaStream.current.volume = 0;
+            console.log('🎭 Avatar audio muted as workaround');
+          }
+        }
+      } catch (error) {
+        console.error('🎭 Error stopping avatar:', error);
+        // Fallback to muting if API call fails
+        if (mediaStream.current) {
+          mediaStream.current.muted = true;
+          mediaStream.current.volume = 0;
+          console.log('🎭 Avatar audio muted as fallback');
+        }
+      }
+      
+      // Stop audio detection
+      audioDetectionRef.current = false;
+      
+      // Clear timer and update state
+      if (speakingTimerRef.current) {
+        clearTimeout(speakingTimerRef.current);
+        speakingTimerRef.current = null;
+      }
+      isAvatarSpeakingRef.current = false;
+      setIsAvatarSpeaking(false);
+      emitEvent('AVATAR_STOP_TALKING');
+    }
+  };
+
+  const interruptAvatarSpeaking = async () => {
+    console.log('🎭 interruptAvatarSpeaking called:', {
+      isAvatarSpeakingRef: isAvatarSpeakingRef.current,
+      isAvatarSpeaking,
+      hasAvatar: !!avatar.current,
+      hasSessionId: !!sessionIdRef.current
+    });
+    
+    if (isAvatarSpeakingRef.current) {
+      console.log('🎭 Interrupting avatar speech', {
+        hasAvatar: !!avatar.current,
+        hasSessionId: !!sessionIdRef.current,
+        sessionId: sessionIdRef.current,
+        hasInterruptMethod: !!(avatar.current && typeof avatar.current.interrupt === 'function'),
+        hasStopAvatarMethod: !!(avatar.current && typeof avatar.current.stopAvatar === 'function')
+      });
+      
+      try {
+        // Use the proper HeyGen API method to interrupt avatar
+        if (avatar.current && typeof avatar.current.interrupt === 'function' && sessionIdRef.current) {
+          await avatar.current.interrupt({ 
+            interruptRequest: { 
+              sessionId: sessionIdRef.current 
+            } 
+          });
+          console.log('🎭 Called avatar.interrupt() - avatar should stop speaking');
+        } else if (avatar.current && typeof avatar.current.stopAvatar === 'function' && sessionIdRef.current) {
+          // Fallback to stopAvatar if interrupt not available
+          await avatar.current.stopAvatar({ 
+            stopSessionRequest: { 
+              sessionId: sessionIdRef.current 
+            } 
+          });
+          console.log('🎭 Called avatar.stopAvatar() as fallback');
+        } else {
+          console.log('🎭 Interrupt/stopAvatar methods not available or sessionId missing, using audio muting workaround');
+          // Fallback to muting if methods not available
+          if (mediaStream.current) {
+            mediaStream.current.muted = true;
+            mediaStream.current.volume = 0;
+            console.log('🎭 Avatar audio muted as workaround');
+          }
+          
+          // Stop audio detection and clear state for fallback case
+          audioDetectionRef.current = false;
+          if (speakingTimerRef.current) {
+            clearTimeout(speakingTimerRef.current);
+            speakingTimerRef.current = null;
+          }
+          isAvatarSpeakingRef.current = false;
+          setIsAvatarSpeaking(false);
+          emitEvent('AVATAR_STOP_TALKING');
+        }
+      } catch (error) {
+        console.error('🎭 Error interrupting avatar:', error);
+        // Fallback to muting if API call fails
+        if (mediaStream.current) {
+          mediaStream.current.muted = true;
+          mediaStream.current.volume = 0;
+          console.log('🎭 Avatar audio muted as fallback');
+        }
+        
+        // Stop audio detection and clear state for error case
+        audioDetectionRef.current = false;
+        if (speakingTimerRef.current) {
+          clearTimeout(speakingTimerRef.current);
+          speakingTimerRef.current = null;
+        }
+        isAvatarSpeakingRef.current = false;
+        setIsAvatarSpeaking(false);
+        emitEvent('AVATAR_STOP_TALKING');
+      }
+      
+      // Only do state cleanup if we haven't already done it in fallback/error cases
+      if (isAvatarSpeakingRef.current) {
+        // Use the centralized reset function for consistency
+        resetAvatarSpeakingState();
+      }
+    }
+  };
+
+  // Event system for avatar and user talking states
+  const emitEvent = (eventType: string, data?: any) => {
+    console.log(`🎭 Event: ${eventType}`, data);
+    
+    switch (eventType) {
+      case 'USER_START':
+        console.log('🎭 USER_START event triggered:', {
+          isAvatarSpeaking: isAvatarSpeakingRef.current,
+          isUserTalking,
+          data
+        });
+        setIsUserTalking(true);
+        // Interrupt avatar if it's speaking
+        if (isAvatarSpeakingRef.current) {
+          console.log('🎭 USER_START: Interrupting avatar to let user speak');
+          interruptAvatarSpeaking();
+        } else {
+          console.log('🎭 USER_START: Avatar not speaking, no interruption needed');
+        }
+        break;
+        
+      case 'AVATAR_STOP_TALKING':
+        console.log('🎭 AVATAR_STOP_TALKING: Avatar finished speaking');
+        // Don't set state here as it's already handled in the promise handlers
+        break;
+        
+      case 'USER_STOP':
+        setIsUserTalking(false);
+        console.log('🎭 USER_STOP: User finished speaking');
+        break;
+    }
+  };
   
   let timeout: any;
 
@@ -93,15 +432,15 @@ function App() {
 
   // Pre-warm avatar for faster response
   const preWarmAvatarForResponse = async () => {
-    if (avatar.current && data?.sessionId && !preWarmAvatar.current) {
+    if (avatar.current && sessionIdRef.current && !preWarmAvatar.current) {
       try {
         // Send a minimal test message to warm up the avatar
-        await avatar.current.speak({ 
-          taskRequest: { 
-            text: "Ready", 
-            sessionId: data.sessionId 
-          } 
-        });
+        // await avatar.current.speak({ 
+        //   taskRequest: { 
+        //     text: "Ready", 
+        //     sessionId: sessionIdRef.current! 
+        //   } 
+        // });
         preWarmAvatar.current = true;
         console.log('🔥 Avatar pre-warmed for faster responses');
       } catch (error) {
@@ -110,120 +449,58 @@ function App() {
     }
   };
 
-  // Function to interrupt avatar speech when user starts talking
-  const interruptAvatarSpeech = async () => {
-    console.log('🛑 Interrupting avatar speech to listen to user!');
-    
-    // Set interruption flags to prevent new speech
-    isUserInterruptingRef.current = true;
-    globalInterruptionRef.current = true;
-    
-    // Immediately set speaking state to false
-    setIsAvatarSpeaking(false);
-    isAvatarSpeakingRef.current = false;
-    
-    // Clear any pending analysis queue
-    analysisQueueRef.current = [];
-    isProcessingQueueRef.current = false;
-    
-    // Clear the input to stop any pending speech
-    setInput('');
-    
-    // Try to stop current avatar speech
-    if (avatar.current && data?.sessionId) {
-      try {
-        // Try to stop current speech using available methods
-        if (typeof (avatar.current as any).stop === 'function') {
-          console.log('🛑 Attempting to stop avatar speech via stop() method');
-          (avatar.current as any).stop();
-        }
-        
-        if (typeof (avatar.current as any).cancel === 'function') {
-          console.log('🛑 Attempting to cancel avatar speech via cancel() method');
-          (avatar.current as any).cancel();
-        }
-        
-      } catch (error) {
-        console.log('Could not stop avatar speech:', error);
-      }
-    }
-    
-    console.log('🛑 Interruption completed - avatar should now be silent');
-    
-    // Reset interruption flags after a timeout to prevent permanent blocking
-    setTimeout(() => {
-      if (isUserInterruptingRef.current || globalInterruptionRef.current) {
-        console.log('🛑 Resetting interruption flags after timeout');
-        isUserInterruptingRef.current = false;
-        globalInterruptionRef.current = false;
-      }
-    }, 5000); // 5 second timeout
-  };
-
   // Function to process analysis queue with reduced latency
   const processAnalysisQueue = async () => {
-    if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) return;
+    console.log('🎭 Processing queue - current state:', {
+      isProcessing: isProcessingQueueRef.current,
+      queueLength: analysisQueueRef.current.length,
+      hasAvatar: !!avatar.current,
+      hasSessionId: !!sessionIdRef.current,
+      sessionId: sessionIdRef.current,
+      isAvatarSpeaking: isAvatarSpeakingRef.current
+    });
     
-    // Check if user is interrupting - don't process queue
-    if (isUserInterruptingRef.current || globalInterruptionRef.current) {
-      console.log('🛑 Skipping analysis queue - user is interrupting');
+    if (isProcessingQueueRef.current || analysisQueueRef.current.length === 0) {
+      console.log('🎭 Queue processing skipped:', {
+        isProcessing: isProcessingQueueRef.current,
+        queueLength: analysisQueueRef.current.length
+      });
       return;
     }
     
     isProcessingQueueRef.current = true;
     const analysis = analysisQueueRef.current.shift();
     
-    if (analysis && avatar.current && data?.sessionId) {
+    console.log('🎭 Processing analysis item:', analysis);
+    
+    if (analysis && avatar.current && sessionIdRef.current) {
       try {
-        console.log('🎭 Processing analysis queue - Avatar starting to speak:', analysis);
-        setIsAvatarSpeaking(true);
-        isAvatarSpeakingRef.current = true;
+        // Use the new control method
+        console.log('🎭 Starting avatar speech for analysis...');
+        await startAvatarSpeaking(analysis);
         
-        // Start speaking immediately without waiting
-        const speakPromise = avatar.current.speak({ 
-          taskRequest: { 
-            text: analysis, 
-            sessionId: data.sessionId 
-          } 
-        });
-        
-        // Process next item in queue immediately after starting speech
-        speakPromise.then(() => {
-          console.log('🎭 Analysis queue speech completed');
-          
-          // Check if user interrupted during speech - don't continue if interrupted
-          if (globalInterruptionRef.current) {
-            console.log('🛑 Analysis queue speech completed but user interrupted - not continuing');
-            setIsAvatarSpeaking(false);
-            isAvatarSpeakingRef.current = false;
-            isProcessingQueueRef.current = false;
-            return;
-          }
-          
-          // Reduced delay - only wait for speech to complete
-          setTimeout(() => {
-            setIsAvatarSpeaking(false);
-            isAvatarSpeakingRef.current = false;
-            isProcessingQueueRef.current = false;
-            // Process next item immediately if available
-            if (analysisQueueRef.current.length > 0) {
-              processAnalysisQueue();
-            }
-          }, 1000); // Reduced from 2000ms to 500ms
-        }).catch((speakError) => {
-          console.error('Error making avatar speak:', speakError);
-          setIsAvatarSpeaking(false);
-          isAvatarSpeakingRef.current = false;
+        // Wait for speech to complete before processing next item
+        setTimeout(() => {
+          console.log('🎭 Analysis speech completed, checking for more items...');
           isProcessingQueueRef.current = false;
-        });
+          // Process next item immediately if available
+          if (analysisQueueRef.current.length > 0) {
+            console.log('🎭 More items in queue, processing next...');
+            processAnalysisQueue();
+          }
+        }, 2000); // Wait 2 seconds for speech to complete
         
       } catch (speakError) {
         console.error('Error making avatar speak:', speakError);
-        setIsAvatarSpeaking(false);
-        isAvatarSpeakingRef.current = false;
         isProcessingQueueRef.current = false;
       }
     } else {
+      console.log('🎭 Cannot process analysis - missing requirements:', {
+        hasAnalysis: !!analysis,
+        hasAvatar: !!avatar.current,
+        hasSessionId: !!sessionIdRef.current,
+        sessionId: sessionIdRef.current
+      });
       isProcessingQueueRef.current = false;
     }
   };
@@ -278,9 +555,35 @@ function App() {
   });
 
 
+  // Function to get current camera state dynamically
+  const getCurrentCameraState = () => {
+    // Access the current camera stream from the ref (always current)
+    const currentStream = cameraStreamRef.current;
+    return {
+      isActive: cameraStateRef.current,
+      stream: currentStream,
+      hasStream: !!currentStream,
+      streamTracks: currentStream?.getTracks().length || 0,
+      videoTracks: currentStream?.getVideoTracks().length || 0,
+      audioTracks: currentStream?.getAudioTracks().length || 0
+    };
+  };
+
   // Function to start continuous listening for voice input
   const startContinuousListening = () => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
+    // Try to use camera stream audio if available, otherwise get new audio stream
+    const getAudioStream = async () => {
+      const currentState = getCurrentCameraState();
+      if (currentState.stream && currentState.audioTracks > 0) {
+        console.log('🎤 Using camera stream audio for voice detection');
+        return currentState.stream;
+      } else {
+        console.log('🎤 Getting separate audio stream for voice detection');
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    };
+
+    getAudioStream()
       .then((stream) => {
         const audioContext = new (window.AudioContext)(); 
         const mediaStreamSource = audioContext.createMediaStreamSource(stream);
@@ -294,49 +597,59 @@ function App() {
         let isRecording = false;
         let silenceStart: number | null = null;
         const silenceTimeout = 1500; // 1.5 seconds of silence (increased for better reliability)
-        const voiceThreshold = 40; // Lowered voice detection threshold for better sensitivity
+        // Dynamic voice threshold based on camera state
+          const getVoiceThreshold = () => {
+            const currentCameraState = cameraStateRef.current;
+            const threshold = currentCameraState ? 20 : 30;
+            // console.log('🎤 Voice threshold check:', { currentCameraState, threshold });
+            return threshold;
+          };
 
         const checkForVoice = () => {
           analyser.getByteFrequencyData(dataArray);
           const avgVolume = dataArray.reduce((a, b) => a + b) / bufferLength;
 
-          // Always check for interruption when avatar is speaking, regardless of recording state
-          if (isAvatarSpeakingRef.current && avgVolume > voiceThreshold) {
-            console.log('🛑 User voice detected while avatar is speaking - interrupting!', {
-              avgVolume,
-              threshold: voiceThreshold,
-              isRecording,
-              isAvatarSpeaking: isAvatarSpeakingRef.current
-            });
-            interruptAvatarSpeech().catch(error => {
-              console.error('🛑 Error during interruption:', error);
-            });
-          }
-
+          const currentThreshold = getVoiceThreshold();
+          
           // Add more detailed logging for debugging
-          if (avgVolume > voiceThreshold * 0.5) { // Log when approaching threshold
-            console.log('🎤 Voice activity detected:', { 
-              avgVolume, 
-              threshold: voiceThreshold, 
-              isRecording, 
-              isAvatarSpeaking: isAvatarSpeakingRef.current,
-              willInterrupt: isAvatarSpeakingRef.current && avgVolume > voiceThreshold
-            });
+          if (avgVolume > currentThreshold * 0.5) { // Log when approaching threshold
+            console.log('🎤 Voice activity detected:', {isCameraActive: cameraStateRef.current, avgVolume, threshold: currentThreshold, isRecording, cameraMode: cameraStateRef.current });
           }
 
-          if (avgVolume > voiceThreshold && !isRecording) {
-            // Voice detected, start recording
-            console.log('🎤 Someone is trying to talk to me! Let me listen...', { 
-              avgVolume, 
-              threshold: voiceThreshold,
-              hasMediaContext,
-              mediaFileName,
-              isAvatarSpeaking
-            });
-            isRecording = true;
-            silenceStart = null;
+          // Check if user is speaking (voice detected)
+          if (avgVolume > currentThreshold) {
+            // ALWAYS interrupt avatar if it's speaking, regardless of recording state
+            if (isAvatarSpeakingRef.current) {
+              console.log('🎤 User started speaking while avatar is talking - interrupting avatar!', { 
+                avgVolume, 
+                threshold: currentThreshold,
+                isAvatarSpeaking: isAvatarSpeakingRef.current,
+                isRecording,
+                hasAvatar: !!avatar.current,
+                hasSessionId: !!sessionIdRef.current,
+                sessionId: sessionIdRef.current
+              });
+              
+              // Emit USER_START event to interrupt avatar
+              emitEvent('USER_START', { avgVolume, threshold: currentThreshold });
+            }
             
-            try {
+            if (!isRecording) {
+              // Voice detected, start recording
+              console.log('🎤 Someone is trying to talk to me! Let me listen...', { 
+                avgVolume, 
+                threshold: currentThreshold,
+                hasMediaContext,
+                mediaFileName 
+              });
+              
+              // Emit USER_START event
+              emitEvent('USER_START', { avgVolume, threshold: currentThreshold });
+              
+              isRecording = true;
+              silenceStart = null;
+              
+              try {
               mediaRecorder.current = new MediaRecorder(stream);
               audioChunks.current = [];
 
@@ -376,7 +689,8 @@ function App() {
               console.error('🎤 Error creating MediaRecorder:', recorderError);
               isRecording = false;
             }
-          } else if (avgVolume < voiceThreshold && isRecording) {
+          }
+          } else if (avgVolume < currentThreshold && isRecording) {
             // Voice stopped, check for silence
             if (!silenceStart) silenceStart = Date.now();
 
@@ -385,15 +699,38 @@ function App() {
                 silenceDuration: Date.now() - silenceStart,
                 chunksCount: audioChunks.current.length
               });
+              
+              // Emit USER_STOP event
+              emitEvent('USER_STOP', {
+                silenceDuration: Date.now() - silenceStart,
+                chunksCount: audioChunks.current.length
+              });
+              
               if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
                 mediaRecorder.current.stop();
               }
               isRecording = false;
               silenceStart = null;
             }
-          } else if (avgVolume > voiceThreshold && isRecording) {
+          } else if (avgVolume > currentThreshold && isRecording) {
             // Still speaking, reset silence timer
             silenceStart = null;
+            
+            // ALWAYS interrupt avatar if it's speaking while user continues talking
+            if (isAvatarSpeakingRef.current) {
+              console.log('🎤 User continues speaking while avatar is talking - interrupting avatar!', { 
+                avgVolume, 
+                threshold: currentThreshold,
+                isAvatarSpeaking: isAvatarSpeakingRef.current,
+                isRecording,
+                hasAvatar: !!avatar.current,
+                hasSessionId: !!sessionIdRef.current,
+                sessionId: sessionIdRef.current
+              });
+              
+              // Emit USER_START event to interrupt avatar
+              emitEvent('USER_START', { avgVolume, threshold: currentThreshold });
+            }
           }
 
           // Continue monitoring
@@ -404,6 +741,8 @@ function App() {
       })
       .catch((error) => {
         console.error('Error accessing microphone:', error);
+        // If we can't get audio stream, don't affect camera state
+        console.log('🎤 Voice detection failed, but camera should remain active');
       });
   };
 
@@ -444,19 +783,6 @@ function App() {
   // Function to handle file upload
   const handleFileUpload = async (file: File) => {
     try {
-      // Check file size limits to prevent timeout issues
-      // const maxFileSize = 5 * 1024 * 1024;
-      // if (file.size > maxFileSize) {
-      //   toast({
-      //     variant: "destructive",
-      //     title: "File too large",
-      //     description: `Please upload files smaller than 5MB. Current file: ${(file.size / 1024 / 1024).toFixed(1)}MB`,
-      //   });
-      //   return;
-      // }
-
-      
-
       let aiResponse;
 
       if (file.type.startsWith('image/')) {
@@ -514,7 +840,7 @@ function App() {
                 ]
               }
             ],
-            max_tokens: 150
+            max_tokens: 100
           }),
           { timeout: 60000, retries: 2 }
         );
@@ -589,7 +915,7 @@ function App() {
                 ]
               }
             ],
-            max_tokens: 150
+            max_tokens: 100
           }),
           { timeout: 60000, retries: 2 }
         );
@@ -613,7 +939,7 @@ function App() {
             messages: [
               { role: 'user', content: prompt }
             ],
-            max_tokens: 150
+            max_tokens: 100
           }),
           { timeout: 30000, retries: 2 }
         );
@@ -628,7 +954,7 @@ function App() {
             messages: [
               { role: 'user', content: prompt }
             ],
-            max_tokens: 150
+            max_tokens: 100
           }),
           { timeout: 30000, retries: 2 }
         );
@@ -671,6 +997,8 @@ function App() {
       
       const randomHelpPrompt = helpPrompts[Math.floor(Math.random() * helpPrompts.length)];
       setInput(randomHelpPrompt);
+
+      console.log("INPUT", input);
       
     } catch (error: any) {
       console.error('Error processing file:', error);
@@ -724,10 +1052,6 @@ function App() {
       }
 
       console.log('🎤 Transcription successful:', transcription);
-      
-      // Reset interruption flags since user has finished speaking
-      isUserInterruptingRef.current = false;
-      globalInterruptionRef.current = false;
 
       // Check if user is asking about vision/camera analysis
       const visionKeywords = [
@@ -744,15 +1068,51 @@ function App() {
       console.log('🎤 Vision check:', { 
         transcription: transcription, 
         isVisionRequest, 
-        isCameraActive, 
+        isCameraActive: cameraStateRef.current, 
         hasCameraRef: !!cameraVideoRef.current 
       });
 
-      // If user is asking about vision and camera is active, trigger analysis
-      if (isVisionRequest && isCameraActive && cameraVideoRef.current) {
-        console.log('👁️ User is asking about vision! Let me analyze what I see...');
-        handleVisionAnalysis(transcription);
-        return; // Don't process as regular conversation
+      // If user is asking about vision, handle accordingly
+      if (isVisionRequest) {
+        console.log('👁️ Vision request detected! Checking camera state...', {
+          transcription,
+          isCameraActive: cameraStateRef.current,
+          hasCameraStream: !!cameraStream,
+          hasCameraRef: !!cameraVideoRef.current,
+          cameraStateRef: cameraStateRef.current,
+          cameraVideoReady: cameraVideoRef.current ? {
+            videoWidth: cameraVideoRef.current.videoWidth,
+            videoHeight: cameraVideoRef.current.videoHeight,
+            readyState: cameraVideoRef.current.readyState
+          } : null
+        });
+        
+        // Get current camera state dynamically
+        const currentCameraState = getCurrentCameraState();
+        
+        if (currentCameraState.isActive && currentCameraState.hasStream) {
+          console.log('👁️ Camera is active and has stream! Proceeding with vision analysis...');
+          console.log('👁️ Camera state details:', currentCameraState);
+          
+          // Add a small delay to ensure camera is fully ready
+          setTimeout(() => {
+            handleVisionAnalysis(transcription);
+          }, 500);
+          
+          return; // Don't process as regular conversation
+        } else {
+          // Camera not active but user asking about vision
+          console.log('👁️ Camera not ready for vision analysis:', {
+            isCameraActive: currentCameraState.isActive,
+            hasCameraStream: currentCameraState.hasStream,
+            hasCameraRef: !!cameraVideoRef.current,
+            cameraStateDetails: currentCameraState
+          });
+          const visionResponse = "I can't see anything right now because the camera isn't active. Please click the camera button to turn on the camera, and then I'll be able to see and describe what's in front of you!";
+          setInput(visionResponse);
+          console.log("INPUT", input);
+          return; // Don't process as regular conversation
+        }
       }
       
       // Check cache first for faster response (but skip cache if media context is active)
@@ -769,6 +1129,7 @@ function App() {
       if (cachedResponse && !hasMediaContext) {
         console.log('🚀 Using cached response for faster reply!');
         setInput(cachedResponse);
+        console.log("INPUT", input);
         
         // Update conversation history
         const updatedHistory = [...conversationHistory, { role: 'user', content: transcription }];
@@ -848,9 +1209,9 @@ function App() {
       try {
         const specificResponse = await createApiCall(
           () => openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-4o-mini',
             messages: messages,
-            max_tokens: 150, // Reduced for faster response
+            max_tokens: 100, // Reduced for faster response
             temperature: 0.8
           }),
           { timeout: 30000, retries: 3 } // Increased timeout and retries for better reliability
@@ -879,6 +1240,7 @@ function App() {
         }
         
         setInput(aiMessage);
+        console.log("INPUT", input);
         
         // Update conversation history with AI response
         const finalHistory = [...updatedHistory, { role: 'assistant', content: aiMessage }];
@@ -905,6 +1267,7 @@ function App() {
         
         const randomFallback = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
         setInput(randomFallback);
+        console.log("INPUT", input);
       }
     }
   }
@@ -912,57 +1275,89 @@ function App() {
   // useEffect getting triggered when the input state is updated, basically make the avatar to talk
   useEffect(() => {
     async function speak() {
-      if (!input || !avatar.current || !data?.sessionId) return;
+      if (!input || !avatar.current || !sessionIdRef.current) return;
       
-      // Check if user is interrupting - don't start new speech
-      if (isUserInterruptingRef.current || globalInterruptionRef.current) {
-        console.log('🛑 Skipping avatar speech - user is interrupting');
-        return;
-      }
-      
-      try {
-        console.log('🎭 Avatar starting to speak:', input);
-        setIsAvatarSpeaking(true);
-        isAvatarSpeakingRef.current = true;
-        
-        // Start speaking immediately without waiting for completion
-        const speakPromise = avatar.current.speak({ 
-          taskRequest: { 
-            text: input, 
-            sessionId: data.sessionId! 
-          } 
-        });
-        
-        // Handle completion and errors
-        speakPromise.then(() => {
-          console.log('🎭 Avatar finished speaking');
-          
-          // Check if user interrupted during speech - don't continue if interrupted
-          if (globalInterruptionRef.current) {
-            console.log('🛑 Avatar speech completed but user interrupted - not continuing');
-            setIsAvatarSpeaking(false);
-            isAvatarSpeakingRef.current = false;
-            return;
-          }
-          
-          setIsAvatarSpeaking(false);
-          isAvatarSpeakingRef.current = false;
-        }).catch((err: any) => {
-          console.error('Avatar speak error:', err);
-          setIsAvatarSpeaking(false);
-          isAvatarSpeakingRef.current = false;
-        });
-        
-      } catch (err: any) {
-        console.error('Avatar speak setup error:', err);
-        setIsAvatarSpeaking(false);
-        isAvatarSpeakingRef.current = false;
-      }
+      // Use the new control method
+      await startAvatarSpeaking(input);
     }
 
     speak();
   }, [input]);
 
+
+  // Debug camera state changes and update ref for voice detection
+  useEffect(() => {
+    console.log('📹 Camera state changed:', {
+      isCameraActive,
+      hasCameraStream: !!cameraStream,
+      hasCameraRef: !!cameraVideoRef.current,
+      cameraVideoDimensions: cameraVideoRef.current ? {
+        videoWidth: cameraVideoRef.current.videoWidth,
+        videoHeight: cameraVideoRef.current.videoHeight,
+        readyState: cameraVideoRef.current.readyState
+      } : null
+    });
+    
+    // Update the refs for voice detection
+    const previousCameraState = cameraStateRef.current;
+    cameraStateRef.current = isCameraActive;
+    cameraStreamRef.current = cameraStream;
+    console.log('📹 Updated camera state ref:', { 
+      previous: previousCameraState, 
+      current: cameraStateRef.current, 
+      isCameraActive,
+      hasCameraStream: !!cameraStream
+    });
+  }, [isCameraActive, cameraStream]);
+
+  // Separate effect to monitor for unexpected camera state changes
+  useEffect(() => {
+    // Only check for unexpected state changes after a delay to avoid race conditions
+    const timeoutId = setTimeout(() => {
+      // Check if camera stream exists but camera is marked as inactive
+      // This should only happen if there's a genuine issue, not during normal transitions
+      if (cameraStream && cameraStream.getTracks().length > 0 && !isCameraActive) {
+        console.log('📹 Unexpected camera state detected - stream exists but camera marked inactive');
+        console.log('📹 Stream tracks:', cameraStream.getTracks().length);
+        console.log('📹 Video tracks:', cameraStream.getVideoTracks().length);
+        console.log('📹 Audio tracks:', cameraStream.getAudioTracks().length);
+        
+        // Only restore if we have active video tracks
+        const videoTracks = cameraStream.getVideoTracks();
+        if (videoTracks.length > 0 && videoTracks[0].readyState === 'live') {
+          console.log('📹 Restoring camera state - video track is live');
+          setIsCameraActive(true);
+          cameraStateRef.current = true;
+        }
+      }
+      
+      // Also check for the opposite case - camera marked active but no stream
+      if (isCameraActive && (!cameraStream || cameraStream.getTracks().length === 0)) {
+        console.log('📹 Camera marked active but no stream - this should not happen');
+        console.log('📹 Current state:', { isCameraActive, hasCameraStream: !!cameraStream });
+      }
+    }, 500); // Wait 500ms to avoid race conditions
+
+    return () => clearTimeout(timeoutId);
+  }, [cameraStream, isCameraActive]);
+
+  // Add global debugging function
+  useEffect(() => {
+    (window as any).debugCameraState = () => {
+      console.log('📹 Current camera state:', {
+        isCameraActive,
+        hasCameraStream: !!cameraStream,
+        cameraStateRef: cameraStateRef.current,
+        streamTracks: cameraStream?.getTracks().length || 0,
+        videoTracks: cameraStream?.getVideoTracks().length || 0,
+        audioTracks: cameraStream?.getAudioTracks().length || 0,
+        hasCameraRef: !!cameraVideoRef.current
+      });
+    };
+    
+    // Call it immediately to show current state
+    (window as any).debugCameraState();
+  }, [isCameraActive, cameraStream]);
 
   // useEffect called when the component mounts, to fetch the accessToken and creates the new instance of StreamingAvatarApi
   useEffect(() => {
@@ -983,9 +1378,7 @@ function App() {
         await grab();
 
         // Start automatic voice detection after avatar is ready
-        setTimeout(() => {
-          startContinuousListening();
-        }, 1000); // Wait 3 seconds for avatar to be ready
+        // Voice detection will be started from within grab() function after session is ready
 
         // Add user interaction handler for Android autoplay
         const handleUserInteraction = () => {
@@ -1011,6 +1404,11 @@ function App() {
       // Cleanup camera analysis interval
       if (analysisIntervalRef.current) {
         clearInterval(analysisIntervalRef.current);
+      }
+      
+      // Cleanup speaking timer
+      if (speakingTimerRef.current) {
+        clearTimeout(speakingTimerRef.current);
       }
     }
 
@@ -1055,6 +1453,8 @@ async function grab() {
     
     // Step 4: Set up video stream (90% progress)
     setData(res);
+    // Store sessionId in ref for immediate access in voice detection
+    sessionIdRef.current = res.sessionId || null;
     setStream(avatar.current!.mediaStream);
     setIsSessionStarted(true);
     
@@ -1067,12 +1467,15 @@ async function grab() {
     setStartAvatarLoading(false);
     
     // Start voice chat and pre-warm in parallel (non-blocking)
-    Promise.all([
-      startContinuousListening(),
-      preWarmAvatarForResponse()
-    ]).catch(error => {
-      console.warn('Background initialization failed:', error);
-    });
+    // Add delay to ensure avatar session is fully ready before starting voice detection
+    setTimeout(() => {
+      Promise.all([
+        startContinuousListening(),
+        preWarmAvatarForResponse()
+      ]).catch(error => {
+        console.warn('Background initialization failed:', error);
+      });
+    }, 2000); // Wait 2 seconds for avatar to be fully ready
     
     // Add initial greeting message after a longer delay to ensure avatar is fully ready
     setTimeout(async () => {
@@ -1101,6 +1504,8 @@ async function grab() {
 
 // Camera functions
 const handleCameraClick = async () => {
+  console.log('📹 Camera button clicked! Current state:', { isCameraActive, hasCameraStream: !!cameraStream });
+  
   if (isCameraActive) {
     // Stop camera
     if (cameraStream) {
@@ -1117,36 +1522,81 @@ const handleCameraClick = async () => {
     setIsCameraActive(false);
     setIsAnalyzing(false);
     
+    // Update camera state ref for voice detection
+    const previousCameraState = cameraStateRef.current;
+    cameraStateRef.current = false;
+    cameraStreamRef.current = null;
+    console.log('📹 Camera deactivated - voice threshold should now be 30:', {
+      previous: previousCameraState,
+      current: cameraStateRef.current
+    });
+    
   } else {
     // Start camera with rear-facing preference
+    console.log('📹 Starting camera activation...');
     try {
       // Try to get rear-facing camera first
       let stream: MediaStream;
       
       try {
-        // Request rear-facing/primary camera
+        // Request rear-facing/primary camera with audio for voice detection
+        console.log('📹 Requesting rear-facing camera with audio...');
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             width: { ideal: 320 },
             height: { ideal: 240 },
             facingMode: { ideal: 'environment' } // Rear-facing camera
           },
-          audio: false
+          audio: true // Enable audio for voice detection
         });
+        console.log('📹 Rear-facing camera obtained successfully');
       } catch (rearError) {
-        console.log('Rear camera not available, trying any camera...');
-        // Fallback to any available camera
+        console.log('📹 Rear camera not available, trying any camera...', rearError);
+        // Fallback to any available camera with audio
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             width: { ideal: 320 },
             height: { ideal: 240 }
           },
-          audio: false
+          audio: true // Enable audio for voice detection
         });
+        console.log('📹 Fallback camera obtained successfully');
       }
       
       setCameraStream(stream);
       setIsCameraActive(true);
+      
+      // Update refs immediately for voice detection
+      cameraStateRef.current = true;
+      cameraStreamRef.current = stream;
+      
+      console.log('📹 Camera activated successfully:', {
+        hasStream: !!stream,
+        streamTracks: stream.getTracks().length,
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+        cameraStateRef: cameraStateRef.current
+      });
+      
+      console.log('📹 Camera state ref updated to true - voice threshold should now be 20');
+      
+      // Add immediate verification
+      setTimeout(() => {
+        console.log('📹 Camera activation verification:', {
+          isCameraActive,
+          cameraStateRef: cameraStateRef.current,
+          hasCameraStream: !!cameraStream,
+          streamTracks: cameraStream?.getTracks().length || 0
+        });
+        
+        // Test voice threshold calculation
+        const testThreshold = cameraStateRef.current ? 20 : 30;
+        console.log('📹 Voice threshold test:', { 
+          cameraStateRef: cameraStateRef.current, 
+          expectedThreshold: 20, 
+          calculatedThreshold: testThreshold 
+        });
+      }, 100);
       
       // Camera is now passive - only analyzes when user asks something
       // No automatic analysis interval
@@ -1159,7 +1609,7 @@ const handleCameraClick = async () => {
 
 const handleMotionDetected = () => {
   // Motion detected - user is moving
-  console.log('👀 Ooh! I see some movement! Someone is getting active!');
+  // console.log('👀 Ooh! I see some movement! Someone is getting active!');
 };
 
 const handleMotionStopped = async () => {
@@ -1217,7 +1667,7 @@ const handleMotionStopped = async () => {
               ]
             }
           ],
-          max_tokens: 150,   
+          max_tokens: 100,   
           stream: true // Enable streaming for faster response
         });
         
@@ -1258,13 +1708,78 @@ const handleVisionAnalysis = async (userQuestion: string) => {
   if (isAnalyzing || isAvatarSpeaking) return; // Prevent analysis while avatar is speaking or already analyzing
   
   console.log('🎭 User asked about vision! Let me analyze what I see...');
+  const currentCameraState = getCurrentCameraState();
+  console.log('🎭 Camera state:', { 
+    ...currentCameraState,
+    hasCameraRef: !!cameraVideoRef.current,
+    cameraVideoDimensions: cameraVideoRef.current ? {
+      videoWidth: cameraVideoRef.current.videoWidth,
+      videoHeight: cameraVideoRef.current.videoHeight
+    } : null
+  });
+  
   setIsAnalyzing(true);
   
   try {
+    // Check if camera is active and has video element
+    if (!currentCameraState.isActive || !currentCameraState.hasStream) {
+      console.error('🎭 Camera not active or no stream available:', {
+        ...currentCameraState,
+        hasCameraRef: !!cameraVideoRef.current
+      });
+      const errorResponse = "I can't see anything right now because the camera isn't active. Please make sure the camera is turned on and try again.";
+      analysisQueueRef.current.push(errorResponse);
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
+      }
+      return;
+    }
+    
+    // Additional check: ensure camera stream has video tracks
+    const videoTracks = currentCameraState.stream?.getVideoTracks() || [];
+    if (videoTracks.length === 0) {
+      console.error('🎭 Camera stream has no video tracks');
+      const errorResponse = "I can't see anything because the camera feed isn't working properly. Please try turning the camera off and on again.";
+      analysisQueueRef.current.push(errorResponse);
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
+      }
+      return;
+    }
+    
+    if (!cameraVideoRef.current) {
+      console.error('🎭 Camera video element not available');
+      const errorResponse = "I can't access the camera feed right now. Please make sure the camera is working properly.";
+      analysisQueueRef.current.push(errorResponse);
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
+      }
+      return;
+    }
+    
     // Capture current frame for analysis
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    if (!cameraVideoRef.current || !ctx) return;
+    if (!ctx) {
+      console.error('🎭 Could not get canvas context');
+      return;
+    }
+    
+    // Wait a moment for video to be ready
+    if (cameraVideoRef.current.videoWidth === 0 || cameraVideoRef.current.videoHeight === 0) {
+      console.log('🎭 Video not ready yet, waiting...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    if (cameraVideoRef.current.videoWidth === 0 || cameraVideoRef.current.videoHeight === 0) {
+      console.error('🎭 Video dimensions still not available');
+      const errorResponse = "I can't see the camera feed properly. The video might not be ready yet.";
+      analysisQueueRef.current.push(errorResponse);
+      if (!isProcessingQueueRef.current) {
+        processAnalysisQueue();
+      }
+      return;
+    }
     
     canvas.width = cameraVideoRef.current.videoWidth;
     canvas.height = cameraVideoRef.current.videoHeight;
@@ -1273,6 +1788,7 @@ const handleVisionAnalysis = async (userQuestion: string) => {
     // Convert to base64 for OpenAI Vision API
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
     
+    console.log('Image data:', imageData);
     // Analyze with OpenAI Vision using conversational approach
     const response = await createApiCall(
       async () => {
@@ -1281,7 +1797,7 @@ const handleVisionAnalysis = async (userQuestion: string) => {
           messages: [
             {
               role: "system",
-              content: `You are a helpful AI assistant that analyzes images in a natural, conversational way. When someone asks you about what you see, respond as if you're having a normal conversation with them. Be friendly, descriptive, and helpful. Keep responses conversational and under 200 words.`
+              content: `You are a helpful, hilarious AI assistant that analyzes images in a natural, conversational and funny way. When someone asks you about what you see, respond as if you're having a normal conversation with them. Be friendly, descriptive, and helpful. Keep responses conversational and under 150 words.`
             },
             {
               role: "user",
@@ -1299,7 +1815,7 @@ const handleVisionAnalysis = async (userQuestion: string) => {
               ]
             }
           ],
-          max_tokens: 150,
+          max_tokens: 100,
           stream: true
         });
         
@@ -1320,9 +1836,17 @@ const handleVisionAnalysis = async (userQuestion: string) => {
     
     // Add the analysis to the queue for avatar speech
     if (analysis.trim()) {
+      console.log('👁️ Adding vision analysis to queue:', analysis.trim());
       analysisQueueRef.current.push(analysis.trim());
+      console.log('👁️ Queue length after adding:', analysisQueueRef.current.length);
+      console.log('👁️ Is processing queue:', isProcessingQueueRef.current);
+      console.log('👁️ Avatar speaking:', isAvatarSpeakingRef.current);
+      
       if (!isProcessingQueueRef.current) {
+        console.log('👁️ Starting queue processing...');
         processAnalysisQueue();
+      } else {
+        console.log('👁️ Queue is already processing, will process when current item finishes');
       }
     }
     
@@ -1400,14 +1924,15 @@ useEffect(() => {
     
     createApiCall(
       () => openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
         messages: messages,
-        max_tokens: 150, // Reduced for faster response
+        max_tokens: 100, // Reduced for faster response
         temperature: 0.8
       }),
       { timeout: 20000, retries: 2 }
     ).then((aiResponse: any) => {
       setInput(aiResponse.choices[0].message.content || '');
+      console.log("INPUT", input);
     }).catch(error => {
       console.log(error);
     })
@@ -1565,6 +2090,42 @@ return (
         ) : (
           <Video ref={mediaStream} />
         )}
+        
+        {/* Avatar speaking indicator - main view */}
+        {!isCameraActive && isAvatarSpeaking && (
+          <div className="absolute top-4 left-4 z-30">
+            <div className="flex items-center space-x-2 bg-black/70 rounded-full px-3 py-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse">
+                <div className="absolute inset-0 bg-green-400 rounded-full animate-ping"></div>
+              </div>
+              <span className="text-white text-sm font-medium">Avatar Speaking</span>
+            </div>
+          </div>
+        )}
+        
+        {/* User talking indicator */}
+        {isUserTalking && (
+          <div className="absolute top-4 right-4 z-30">
+            <div className="flex items-center space-x-2 bg-blue-600/70 rounded-full px-3 py-2">
+              <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse">
+                <div className="absolute inset-0 bg-blue-300 rounded-full animate-ping"></div>
+              </div>
+              <span className="text-white text-sm font-medium">You're Speaking</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Camera vision ready indicator */}
+        {isCameraActive && cameraStream && (
+          <div className="absolute top-4 left-4 z-30">
+            <div className="flex items-center space-x-2 bg-green-600/70 rounded-full px-3 py-2">
+              <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse">
+                <div className="absolute inset-0 bg-green-300 rounded-full animate-ping"></div>
+              </div>
+              <span className="text-white text-sm font-medium">Vision Ready</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Small Avatar Video - Top Left Corner (when camera is active) */}
@@ -1580,6 +2141,19 @@ return (
               backgroundColor: '#000'
             }}
           />
+        {/* Avatar speaking indicator */}
+        {isAvatarSpeaking && (
+          <div className="absolute top-1 right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-lg">
+            <div className="absolute inset-0 bg-green-400 rounded-full animate-ping"></div>
+          </div>
+        )}
+        
+        {/* User talking indicator for camera mode */}
+        {isUserTalking && (
+          <div className="absolute top-1 left-1 w-3 h-3 bg-blue-500 rounded-full animate-pulse shadow-lg">
+            <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping"></div>
+          </div>
+        )}
         </div>
       )}
 
@@ -1611,6 +2185,93 @@ return (
             <div className="text-xs mt-2 opacity-50">
               {loadingProgress}% complete
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Avatar Control Panel - Top Right */}
+      {isSessionStarted && (
+        <div className="absolute top-4 right-4 z-30 flex flex-col gap-2">
+          <div className="bg-black/70 rounded-lg p-2 flex flex-col gap-1">
+            {/* Debug info */}
+            <div className="text-xs text-white/70 mb-1">
+              Avatar: {isAvatarSpeaking ? 'Speaking' : 'Silent'} | User: {isUserTalking ? 'Talking' : 'Silent'}
+            </div>
+            <div className="text-xs text-white/50 mb-1">
+              Ref: {isAvatarSpeakingRef.current ? 'True' : 'False'} | Timer: {speakingTimerRef.current ? 'Active' : 'None'} | Audio: {audioDetectionRef.current ? 'Detecting' : 'Off'}
+            </div>
+            <button
+              onClick={() => startAvatarSpeaking("Hello! I'm ready to help you.")}
+              disabled={isAvatarSpeaking}
+              className={`px-3 py-1 text-xs rounded ${
+                isAvatarSpeaking 
+                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                  : 'bg-green-600 hover:bg-green-700 text-white'
+              }`}
+            >
+              Start Avatar
+            </button>
+            <button
+              onClick={stopAvatarSpeaking}
+              disabled={!isAvatarSpeaking}
+              className={`px-3 py-1 text-xs rounded ${
+                !isAvatarSpeaking 
+                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                  : 'bg-red-600 hover:bg-red-700 text-white'
+              }`}
+              title={isAvatarSpeaking ? 'Stop the avatar from speaking' : 'Avatar is not speaking'}
+            >
+              Stop Avatar {isAvatarSpeaking ? '✓' : '✗'}
+            </button>
+            <button
+              onClick={interruptAvatarSpeaking}
+              disabled={!isAvatarSpeaking}
+              className={`px-3 py-1 text-xs rounded ${
+                !isAvatarSpeaking 
+                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                  : 'bg-orange-600 hover:bg-orange-700 text-white'
+              }`}
+              title={isAvatarSpeaking ? 'Interrupt the avatar immediately' : 'Avatar is not speaking'}
+            >
+              Interrupt {isAvatarSpeaking ? '✓' : '✗'}
+            </button>
+            <button
+              onClick={() => {
+                console.log('🎭 Force stopping avatar - clearing all timers and state');
+                // Mute audio as workaround
+                if (mediaStream.current) {
+                  mediaStream.current.muted = true;
+                  mediaStream.current.volume = 0;
+                  console.log('🎭 Avatar audio muted in force stop');
+                }
+                resetAvatarSpeakingState();
+              }}
+              className="px-3 py-1 text-xs rounded bg-purple-600 hover:bg-purple-700 text-white"
+              title="Force stop avatar (emergency override) - mutes audio"
+            >
+              Force Stop
+            </button>
+            <button
+              onClick={resetAvatarSpeakingState}
+              className="px-3 py-1 text-xs rounded bg-orange-600 hover:bg-orange-700 text-white"
+              title="Reset avatar speaking state (for stuck states)"
+            >
+              Reset State
+            </button>
+            <button
+              onClick={() => {
+                console.log('🎭 Unmuting avatar audio');
+                if (mediaStream.current) {
+                  mediaStream.current.muted = false;
+                  mediaStream.current.volume = 1.0;
+                  console.log('🎭 Avatar audio unmuted');
+                }
+              }}
+              className="px-3 py-1 text-xs rounded bg-cyan-600 hover:bg-cyan-700 text-white"
+              title="Unmute avatar audio"
+            >
+              Unmute
+            </button>
           </div>
         </div>
       )}
@@ -1753,3 +2414,4 @@ return (
 }
 
 export default App;
+
