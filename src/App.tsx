@@ -23,11 +23,11 @@ function App() {
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream>();
-  const [data, setData] = useState<NewSessionData>();
+  const [, setData] = useState<NewSessionData>();
   const mediaStream = useRef<HTMLVideoElement>(null);
   const avatar = useRef<StreamingAvatarApi | null>(null);
   
-  // Ref to store sessionId for immediate access in voice detection
+  // Ref to store  v  sessionId for immediate access in voice detection
   const sessionIdRef = useRef<string | null>(null);
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
@@ -2190,10 +2190,10 @@ return (
       )}
 
       {/* Avatar Control Panel - Top Right */}
-      {isSessionStarted && (
+      {/* {isSessionStarted && (
         <div className="absolute top-4 right-4 z-30 flex flex-col gap-2">
           <div className="bg-black/70 rounded-lg p-2 flex flex-col gap-1">
-            {/* Debug info */}
+
             <div className="text-xs text-white/70 mb-1">
               Avatar: {isAvatarSpeaking ? 'Speaking' : 'Silent'} | User: {isUserTalking ? 'Talking' : 'Silent'}
             </div>
@@ -2238,7 +2238,6 @@ return (
             <button
               onClick={() => {
                 console.log('🎭 Force stopping avatar - clearing all timers and state');
-                // Mute audio as workaround
                 if (mediaStream.current) {
                   mediaStream.current.muted = true;
                   mediaStream.current.volume = 0;
@@ -2274,7 +2273,7 @@ return (
             </button>
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Camera and Paper clip buttons - positioned above avatar's hands */}
       {isSessionStarted && (
