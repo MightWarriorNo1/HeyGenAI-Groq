@@ -257,51 +257,51 @@ function App() {
     }
   };
 
-  const stopAvatarSpeaking = async () => {
-    if (isAvatarSpeakingRef.current) {
-      console.log('🎭 Manually stopping avatar speech');
+  // const stopAvatarSpeaking = async () => {
+  //   if (isAvatarSpeakingRef.current) {
+  //     console.log('🎭 Manually stopping avatar speech');
       
-      try {
-        // Use the proper HeyGen API method to stop avatar
-        if (avatar.current && typeof avatar.current.stopAvatar === 'function' && sessionIdRef.current) {
-          await avatar.current.stopAvatar({ 
-            stopSessionRequest: { 
-              sessionId: sessionIdRef.current 
-            } 
-          });
-          console.log('🎭 Called avatar.stopAvatar() - avatar should stop speaking');
-        } else {
-          console.log('🎭 stopAvatar method not available or sessionId missing, using audio muting workaround');
-          // Fallback to muting if method not available
-          if (mediaStream.current) {
-            mediaStream.current.muted = true;
-            mediaStream.current.volume = 0;
-            console.log('🎭 Avatar audio muted as workaround');
-          }
-        }
-      } catch (error) {
-        console.error('🎭 Error stopping avatar:', error);
-        // Fallback to muting if API call fails
-        if (mediaStream.current) {
-          mediaStream.current.muted = true;
-          mediaStream.current.volume = 0;
-          console.log('🎭 Avatar audio muted as fallback');
-        }
-      }
+  //     try {
+  //       // Use the proper HeyGen API method to stop avatar
+  //       if (avatar.current && typeof avatar.current.stopAvatar === 'function' && sessionIdRef.current) {
+  //         await avatar.current.stopAvatar({ 
+  //           stopSessionRequest: { 
+  //             sessionId: sessionIdRef.current 
+  //           } 
+  //         });
+  //         console.log('🎭 Called avatar.stopAvatar() - avatar should stop speaking');
+  //       } else {
+  //         console.log('🎭 stopAvatar method not available or sessionId missing, using audio muting workaround');
+  //         // Fallback to muting if method not available
+  //         if (mediaStream.current) {
+  //           mediaStream.current.muted = true;
+  //           mediaStream.current.volume = 0;
+  //           console.log('🎭 Avatar audio muted as workaround');
+  //         }
+  //       }
+  //     } catch (error) {
+  //       console.error('🎭 Error stopping avatar:', error);
+  //       // Fallback to muting if API call fails
+  //       if (mediaStream.current) {
+  //         mediaStream.current.muted = true;
+  //         mediaStream.current.volume = 0;
+  //         console.log('🎭 Avatar audio muted as fallback');
+  //       }
+  //     }
       
-      // Stop audio detection
-      audioDetectionRef.current = false;
+  //     // Stop audio detection
+  //     audioDetectionRef.current = false;
       
-      // Clear timer and update state
-      if (speakingTimerRef.current) {
-        clearTimeout(speakingTimerRef.current);
-        speakingTimerRef.current = null;
-      }
-      isAvatarSpeakingRef.current = false;
-      setIsAvatarSpeaking(false);
-      emitEvent('AVATAR_STOP_TALKING');
-    }
-  };
+  //     // Clear timer and update state
+  //     if (speakingTimerRef.current) {
+  //       clearTimeout(speakingTimerRef.current);
+  //       speakingTimerRef.current = null;
+  //     }
+  //     isAvatarSpeakingRef.current = false;
+  //     setIsAvatarSpeaking(false);
+  //     emitEvent('AVATAR_STOP_TALKING');
+  //   }
+  // };
 
   const interruptAvatarSpeaking = async () => {
     console.log('🎭 interruptAvatarSpeaking called:', {
