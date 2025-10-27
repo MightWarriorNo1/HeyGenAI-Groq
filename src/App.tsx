@@ -569,6 +569,72 @@ function App() {
     };
   };
 
+  // Function to get preferred microphone device (built-in on mobile)
+  const getPreferredMicrophone = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      
+      console.log('🎤 Available audio input devices:', audioInputs.map(d => ({
+        deviceId: d.deviceId,
+        label: d.label,
+        kind: d.kind
+      })));
+      
+      if (audioInputs.length === 0) {
+        console.log('🎤 No audio input devices found, using default');
+        return null;
+      }
+      
+      // Prefer built-in microphone on mobile devices
+      // Strategy:
+      // 1. Look for device with "builtin", "default", or "internal" in label (case insensitive)
+      // 2. Exclude devices with "headset", "headphone", or "bluetooth" in label
+      // 3. If we have multiple devices, prefer ones that don't look like headphones
+      
+      const excludeKeywords = ['headset', 'headphone', 'bluetooth', 'headphone', 'earphone'];
+      const preferKeywords = ['builtin', 'default', 'internal', 'built-in'];
+      
+      // First, try to find a device with preferred keywords
+      const preferredDevice = audioInputs.find(device => 
+        preferKeywords.some(keyword => device.label.toLowerCase().includes(keyword)) &&
+        !excludeKeywords.some(keyword => device.label.toLowerCase().includes(keyword))
+      );
+      
+      if (preferredDevice) {
+        console.log('🎤 Selected built-in microphone:', {
+          deviceId: preferredDevice.deviceId,
+          label: preferredDevice.label
+        });
+        return preferredDevice.deviceId;
+      }
+      
+      // Second, try to find a device that doesn't look like headphones
+      const nonHeadsetDevice = audioInputs.find(device =>
+        !excludeKeywords.some(keyword => device.label.toLowerCase().includes(keyword))
+      );
+      
+      if (nonHeadsetDevice) {
+        console.log('🎤 Selected non-headset microphone:', {
+          deviceId: nonHeadsetDevice.deviceId,
+          label: nonHeadsetDevice.label
+        });
+        return nonHeadsetDevice.deviceId;
+      }
+      
+      // Fallback: use the first available device
+      console.log('🎤 Using first available microphone:', {
+        deviceId: audioInputs[0].deviceId,
+        label: audioInputs[0].label
+      });
+      return audioInputs[0].deviceId;
+      
+    } catch (error) {
+      console.error('🎤 Error enumerating audio devices:', error);
+      return null;
+    }
+  };
+
   // Function to start continuous listening for voice input
   const startContinuousListening = () => {
     // Try to use camera stream audio if available, otherwise get new audio stream
@@ -579,7 +645,12 @@ function App() {
         return currentState.stream;
       } else {
         console.log('🎤 Getting separate audio stream for voice detection');
-        return await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Get preferred microphone device for mobile devices
+        const deviceId = await getPreferredMicrophone();
+        const audioConstraints = deviceId ? { deviceId: { ideal: deviceId } } : true;
+        return await navigator.mediaDevices.getUserMedia({ 
+          audio: audioConstraints
+        });
       }
     };
 
@@ -1541,24 +1612,31 @@ const handleCameraClick = async () => {
       try {
         // Request rear-facing/primary camera with audio for voice detection
         console.log('📹 Requesting rear-facing camera with audio...');
+        // Get preferred microphone device
+        const deviceId = await getPreferredMicrophone();
+        const audioConstraints = deviceId ? { deviceId: { ideal: deviceId } } : true;
+        
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             width: { ideal: 320 },
             height: { ideal: 240 },
             facingMode: { ideal: 'environment' } // Rear-facing camera
           },
-          audio: true // Enable audio for voice detection
+          audio: audioConstraints // Enable audio for voice detection with preferred mic
         });
         console.log('📹 Rear-facing camera obtained successfully');
       } catch (rearError) {
         console.log('📹 Rear camera not available, trying any camera...', rearError);
         // Fallback to any available camera with audio
+        const deviceId = await getPreferredMicrophone();
+        const audioConstraints = deviceId ? { deviceId: { ideal: deviceId } } : true;
+        
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             width: { ideal: 320 },
             height: { ideal: 240 }
           },
-          audio: true // Enable audio for voice detection
+          audio: audioConstraints // Enable audio for voice detection with preferred mic
         });
         console.log('📹 Fallback camera obtained successfully');
       }
