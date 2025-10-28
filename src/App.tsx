@@ -1,8 +1,15 @@
 /*eslint-disable*/
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import OpenAI from 'openai';
-import { Configuration, NewSessionData, StreamingAvatarApi } from '@heygen/streaming-avatar';
-import { getAccessToken } from './services/api';
+import { 
+  getSessionToken, 
+  createNewSession, 
+  startStreamingSession, 
+  sendTextToAvatar, 
+  stopStreamingSession,
+  SessionInfo 
+} from './services/api';
+import { LiveKitService } from './services/livekit';
 import { Video } from './components/reusable/Video';
 import { createApiCall } from './utils/api-helpers';
 import { Button } from "@/components/ui/button";
@@ -23,12 +30,14 @@ function App() {
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream>();
-  const [, setData] = useState<NewSessionData>();
+  const [, setData] = useState<SessionInfo>();
   const mediaStream = useRef<HTMLVideoElement>(null);
-  const avatar = useRef<StreamingAvatarApi | null>(null);
+  const liveKitService = useRef<LiveKitService | null>(null);
   
-  // Ref to store  v  sessionId for immediate access in voice detection
+  // Ref to store sessionId for immediate access in voice detection
   const sessionIdRef = useRef<string | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
+  const sessionInfoRef = useRef<SessionInfo | null>(null);
 
   const [startAvatarLoading, setStartAvatarLoading] = useState<boolean>(false);
   const [isSessionStarted, setIsSessionStarted] = useState<boolean>(false);
@@ -162,9 +171,9 @@ function App() {
 
   // Avatar control methods
   const startAvatarSpeaking = async (text: string) => {
-    if (!avatar.current || !sessionIdRef.current) {
+    if (!sessionTokenRef.current || !sessionIdRef.current) {
       console.log('🎭 Cannot start avatar speech - missing requirements:', {
-        hasAvatar: !!avatar.current,
+        hasSessionToken: !!sessionTokenRef.current,
         hasSessionId: !!sessionIdRef.current,
         sessionId: sessionIdRef.current
       });
@@ -187,13 +196,13 @@ function App() {
         console.log('🎭 Avatar audio restored');
       }
       
-      // Start the speech
-      const speakPromise = avatar.current.speak({ 
-        taskRequest: { 
-          text: text, 
-          sessionId: sessionIdRef.current! 
-        } 
-      });
+      // Start the speech using API
+      const speakPromise = sendTextToAvatar(
+        sessionTokenRef.current,
+        sessionIdRef.current,
+        text,
+        'talk'
+      );
       
       // Calculate minimum speaking duration based on text length
       const wordsPerSecond = 1.5; // Much slower speaking speed for more realistic timing
@@ -1346,7 +1355,7 @@ function App() {
   // useEffect getting triggered when the input state is updated, basically make the avatar to talk
   useEffect(() => {
     async function speak() {
-      if (!input || !avatar.current || !sessionIdRef.current) return;
+      if (!input || !sessionTokenRef.current || !sessionIdRef.current) return;
       
       // Use the new control method
       await startAvatarSpeaking(input);
@@ -1430,20 +1439,14 @@ function App() {
     (window as any).debugCameraState();
   }, [isCameraActive, cameraStream]);
 
-  // useEffect called when the component mounts, to fetch the accessToken and creates the new instance of StreamingAvatarApi
+  // useEffect called when the component mounts, to fetch the session token
   useEffect(() => {
-    async function fetchAccessToken() {
+    async function fetchSessionToken() {
       try {
-        const response = await getAccessToken();
-        const token = response.data.data.token;
-
-
-        if (!avatar.current) {
-          avatar.current = new StreamingAvatarApi(
-            new Configuration({ accessToken: token })
-          );
-        }
-        console.log(avatar.current)
+        const response = await getSessionToken();
+        const token = response.data.token;
+        sessionTokenRef.current = token;
+        console.log('Session token fetched successfully');
 
         // Automatically start the avatar session
         await grab();
@@ -1462,11 +1465,11 @@ function App() {
         document.addEventListener('click', handleUserInteraction, { once: true });
 
       } catch (error: any) {
-        console.error("Error fetching access token:", error);
+        console.error("Error fetching session token:", error);
       }
     }
 
-    fetchAccessToken();
+    fetchSessionToken();
 
     return () => {
       // Cleanup timeout
@@ -1481,6 +1484,16 @@ function App() {
       if (speakingTimerRef.current) {
         clearTimeout(speakingTimerRef.current);
       }
+      
+      // Cleanup LiveKit service
+      if (liveKitService.current) {
+        liveKitService.current.cleanup();
+      }
+      
+      // Stop streaming session if active
+      if (sessionTokenRef.current && sessionIdRef.current) {
+        stopStreamingSession(sessionTokenRef.current, sessionIdRef.current).catch(console.error);
+      }
     }
 
   }, []);
@@ -1494,42 +1507,49 @@ async function grab() {
   setLoadingProgress(0);
   
   try {
-    // Step 1: Get access token (20% progress)
-    const tokenResponse = await getAccessToken();
+    // Step 1: Get session token (20% progress)
+    const tokenResponse = await getSessionToken();
     setLoadingProgress(20);
     
-    const token = tokenResponse.data.data.token;
+    const sessionToken = tokenResponse.data.token;
+    sessionTokenRef.current = sessionToken;
 
-    // Step 2: Initialize avatar API (40% progress)
-    if (!avatar.current) {
-      avatar.current = new StreamingAvatarApi(
-        new Configuration({ accessToken: token })
-      );
+    // Step 2: Initialize LiveKit service (40% progress)
+    if (!liveKitService.current) {
+      liveKitService.current = new LiveKitService();
     }
     setLoadingProgress(40);
 
-    // Step 3: Create avatar session (70% progress)
-    const res = await avatar.current!.createStartAvatar(
-      {
-        newSessionRequest: {
-          quality: "low", // Use low quality for faster response
-          avatarName: import.meta.env.VITE_HEYGEN_AVATARID,
-          voice: { voiceId: import.meta.env.VITE_HEYGEN_VOICEID }
-        }
-      },
+    // Step 3: Create new session (60% progress)
+    const sessionResponse = await createNewSession(
+      sessionToken,
+      import.meta.env.VITE_HEYGEN_AVATARID,
+      import.meta.env.VITE_HEYGEN_VOICEID
     );
     
-    console.log('Avatar session created:', res);
-    setLoadingProgress(70);
+    const sessionInfo = sessionResponse.data;
+    sessionInfoRef.current = sessionInfo;
+    sessionIdRef.current = sessionInfo.session_id;
     
-    // Step 4: Set up video stream (90% progress)
-    setData(res);
-    // Store sessionId in ref for immediate access in voice detection
-    sessionIdRef.current = res.sessionId || null;
-    setStream(avatar.current!.mediaStream);
+    console.log('Avatar session created:', sessionInfo);
+    setLoadingProgress(60);
+
+    // Step 4: Create LiveKit room and prepare connection (80% progress)
+    const room = await liveKitService.current.createRoom();
+    await liveKitService.current.prepareConnection(sessionInfo.url, sessionInfo.access_token);
+    setLoadingProgress(80);
+
+    // Step 5: Start streaming session (90% progress)
+    await startStreamingSession(sessionToken, sessionInfo.session_id);
+    await liveKitService.current.connect(sessionInfo.url, sessionInfo.access_token);
+    
+    // Step 6: Set up video stream (100% progress)
+    setData(sessionInfo);
+    const mediaStream = liveKitService.current.getMediaStream();
+    if (mediaStream) {
+      setStream(mediaStream);
+    }
     setIsSessionStarted(true);
-    
-    // Note: Don't clear media context here as it might be needed for ongoing analysis
     
     setLoadingProgress(100);
     
@@ -1552,12 +1572,12 @@ async function grab() {
     setTimeout(async () => {
       try {
         console.log('🎭 Avatar greeting: Starting initial greeting...');
-        await avatar.current!.speak({ 
-          taskRequest: { 
-            text: "Hello My name is 6, your personal assistant. How can I help you today?", 
-            sessionId: res.sessionId 
-          } 
-        });
+        await sendTextToAvatar(
+          sessionTokenRef.current!,
+          sessionIdRef.current!,
+          "Hello My name is 6, your personal assistant. How can I help you today?",
+          'talk'
+        );
         console.log('🎭 Avatar greeting: Greeting completed successfully');
       } catch (error) {
         console.warn('Initial greeting failed:', error);
