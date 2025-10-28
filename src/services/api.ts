@@ -18,7 +18,24 @@ export interface NewSessionResponse {
 }
 
 export interface StreamingTaskResponse {
-  data: any;
+  data: {
+    task_id: string;
+    status: string;
+  };
+}
+
+export interface StartStreamingResponse {
+  data: {
+    session_id: string;
+    status: string;
+  };
+}
+
+export interface StopStreamingResponse {
+  data: {
+    session_id: string;
+    status: string;
+  };
 }
 
 // Configuration
@@ -29,21 +46,17 @@ const API_CONFIG = {
 
 // Get session token
 export const getSessionToken = async (): Promise<SessionTokenResponse> => {
-  try {
-    const response = await axios.post(
-      `${API_CONFIG.serverUrl}/v1/streaming.create_token`,
-      {},
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Api-Key': API_CONFIG.apiKey,
-        },
-      }
-    );
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+  const response = await axios.post(
+    `${API_CONFIG.serverUrl}/v1/streaming.create_token`,
+    {},
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': API_CONFIG.apiKey,
+      },
+    }
+  );
+  return response.data;
 };
 
 // Create new session
@@ -52,57 +65,49 @@ export const createNewSession = async (
   avatarId: string,
   voiceId: string
 ): Promise<NewSessionResponse> => {
-  try {
-    const response = await axios.post(
-      `${API_CONFIG.serverUrl}/v1/streaming.new`,
-      {
-        quality: 'high',
-        avatar_name: avatarId,
-        voice: {
-          voice_id: voiceId,
-          rate: 1.0,
-        },
-        language: 'English',
-        emotion: 'Excited',
-        version: 'v2',
-        video_encoding: 'H264',
-        knowledge_base_id: '0c7b7d8a5f214a97906006dc2c9f0335',
+  const response = await axios.post(
+    `${API_CONFIG.serverUrl}/v1/streaming.new`,
+    {
+      quality: 'high',
+      avatar_name: avatarId,
+      voice: {
+        voice_id: voiceId,
+        rate: 1.0,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+      language: 'English',
+      emotion: 'Excited',
+      version: 'v2',
+      video_encoding: 'H264',
+      knowledge_base_id: '0c7b7d8a5f214a97906006dc2c9f0335',
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    }
+  );
+  return response.data;
 };
 
 // Start streaming session
 export const startStreamingSession = async (
   sessionToken: string,
   sessionId: string
-): Promise<any> => {
-  try {
-    const response = await axios.post(
-      `${API_CONFIG.serverUrl}/v1/streaming.start`,
-      {
-        session_id: sessionId,
+): Promise<StartStreamingResponse> => {
+  const response = await axios.post(
+    `${API_CONFIG.serverUrl}/v1/streaming.start`,
+    {
+      session_id: sessionId,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+    }
+  );
+  return response.data;
 };
 
 // Send text to avatar
@@ -112,49 +117,41 @@ export const sendTextToAvatar = async (
   text: string,
   taskType: string = 'talk'
 ): Promise<StreamingTaskResponse> => {
-  try {
-    const response = await axios.post(
-      `${API_CONFIG.serverUrl}/v1/streaming.task`,
-      {
-        session_id: sessionId,
-        text: text,
-        task_type: taskType,
+  const response = await axios.post(
+    `${API_CONFIG.serverUrl}/v1/streaming.task`,
+    {
+      session_id: sessionId,
+      text: text,
+      task_type: taskType,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+    }
+  );
+  return response.data;
 };
 
 // Stop streaming session
 export const stopStreamingSession = async (
   sessionToken: string,
   sessionId: string
-): Promise<any> => {
-  try {
-    const response = await axios.post(
-      `${API_CONFIG.serverUrl}/v1/streaming.stop`,
-      {
-        session_id: sessionId,
+): Promise<StopStreamingResponse> => {
+  const response = await axios.post(
+    `${API_CONFIG.serverUrl}/v1/streaming.stop`,
+    {
+      session_id: sessionId,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      }
-    );
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+    }
+  );
+  return response.data;
 };
 
 // Legacy function for backward compatibility

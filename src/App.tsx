@@ -316,36 +316,20 @@ function App() {
     console.log('🎭 interruptAvatarSpeaking called:', {
       isAvatarSpeakingRef: isAvatarSpeakingRef.current,
       isAvatarSpeaking,
-      hasAvatar: !!avatar.current,
       hasSessionId: !!sessionIdRef.current
     });
     
     if (isAvatarSpeakingRef.current) {
       console.log('🎭 Interrupting avatar speech', {
-        hasAvatar: !!avatar.current,
         hasSessionId: !!sessionIdRef.current,
-        sessionId: sessionIdRef.current,
-        hasInterruptMethod: !!(avatar.current && typeof avatar.current.interrupt === 'function'),
-        hasStopAvatarMethod: !!(avatar.current && typeof avatar.current.stopAvatar === 'function')
+        sessionId: sessionIdRef.current
       });
       
       try {
-        // Use the proper HeyGen API method to interrupt avatar
-        if (avatar.current && typeof avatar.current.interrupt === 'function' && sessionIdRef.current) {
-          await avatar.current.interrupt({ 
-            interruptRequest: { 
-              sessionId: sessionIdRef.current 
-            } 
-          });
-          console.log('🎭 Called avatar.interrupt() - avatar should stop speaking');
-        } else if (avatar.current && typeof avatar.current.stopAvatar === 'function' && sessionIdRef.current) {
-          // Fallback to stopAvatar if interrupt not available
-          await avatar.current.stopAvatar({ 
-            stopSessionRequest: { 
-              sessionId: sessionIdRef.current 
-            } 
-          });
-          console.log('🎭 Called avatar.stopAvatar() as fallback');
+        // Use the HeyGen API to stop the streaming session
+        if (sessionIdRef.current && sessionTokenRef.current) {
+          await stopStreamingSession(sessionTokenRef.current, sessionIdRef.current);
+          console.log('🎭 Called stopStreamingSession() - avatar should stop speaking');
         } else {
           console.log('🎭 Interrupt/stopAvatar methods not available or sessionId missing, using audio muting workaround');
           // Fallback to muting if methods not available
@@ -441,7 +425,7 @@ function App() {
 
   // Pre-warm avatar for faster response
   const preWarmAvatarForResponse = async () => {
-    if (avatar.current && sessionIdRef.current && !preWarmAvatar.current) {
+    if (sessionIdRef.current && !preWarmAvatar.current) {
       try {
         // Send a minimal test message to warm up the avatar
         // await avatar.current.speak({ 
@@ -463,7 +447,6 @@ function App() {
     console.log('🎭 Processing queue - current state:', {
       isProcessing: isProcessingQueueRef.current,
       queueLength: analysisQueueRef.current.length,
-      hasAvatar: !!avatar.current,
       hasSessionId: !!sessionIdRef.current,
       sessionId: sessionIdRef.current,
       isAvatarSpeaking: isAvatarSpeakingRef.current
@@ -482,7 +465,7 @@ function App() {
     
     console.log('🎭 Processing analysis item:', analysis);
     
-    if (analysis && avatar.current && sessionIdRef.current) {
+    if (analysis && sessionIdRef.current) {
       try {
         // Use the new control method
         console.log('🎭 Starting avatar speech for analysis...');
@@ -506,7 +489,6 @@ function App() {
     } else {
       console.log('🎭 Cannot process analysis - missing requirements:', {
         hasAnalysis: !!analysis,
-        hasAvatar: !!avatar.current,
         hasSessionId: !!sessionIdRef.current,
         sessionId: sessionIdRef.current
       });
@@ -705,7 +687,6 @@ function App() {
                 threshold: currentThreshold,
                 isAvatarSpeaking: isAvatarSpeakingRef.current,
                 isRecording,
-                hasAvatar: !!avatar.current,
                 hasSessionId: !!sessionIdRef.current,
                 sessionId: sessionIdRef.current
               });
@@ -803,7 +784,6 @@ function App() {
                 threshold: currentThreshold,
                 isAvatarSpeaking: isAvatarSpeakingRef.current,
                 isRecording,
-                hasAvatar: !!avatar.current,
                 hasSessionId: !!sessionIdRef.current,
                 sessionId: sessionIdRef.current
               });
@@ -1535,7 +1515,7 @@ async function grab() {
     setLoadingProgress(60);
 
     // Step 4: Create LiveKit room and prepare connection (80% progress)
-    const room = await liveKitService.current.createRoom();
+    await liveKitService.current.createRoom();
     await liveKitService.current.prepareConnection(sessionInfo.url, sessionInfo.access_token);
     setLoadingProgress(80);
 
