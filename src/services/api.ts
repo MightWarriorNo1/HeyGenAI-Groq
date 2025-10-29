@@ -63,7 +63,8 @@ export const getSessionToken = async (): Promise<SessionTokenResponse> => {
 export const createNewSession = async (
   sessionToken: string,
   avatarId: string,
-  voiceId: string
+  voiceId: string,
+  openingText?: string
 ): Promise<NewSessionResponse> => {
   const response = await axios.post(
     `${API_CONFIG.serverUrl}/v1/streaming.new`,
@@ -79,6 +80,7 @@ export const createNewSession = async (
       version: 'v2',
       video_encoding: 'H264',
       knowledge_base_id: '0c7b7d8a5f214a97906006dc2c9f0335',
+      opening_text: openingText || "Hello My name is 6, your personal assistant. How can I help you today?",
     },
     {
       headers: {
@@ -115,7 +117,7 @@ export const sendTextToAvatar = async (
   sessionToken: string,
   sessionId: string,
   text: string,
-  taskType: string = 'talk'
+  taskType: string
 ): Promise<StreamingTaskResponse> => {
   const response = await axios.post(
     `${API_CONFIG.serverUrl}/v1/streaming.task`,

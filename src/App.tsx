@@ -201,7 +201,7 @@ function App() {
         sessionTokenRef.current,
         sessionIdRef.current,
         text,
-        'talk'
+        'repeat'
       );
       
       // Calculate minimum speaking duration based on text length
@@ -1504,7 +1504,8 @@ async function grab() {
     const sessionResponse = await createNewSession(
       sessionToken,
       import.meta.env.VITE_HEYGEN_AVATARID,
-      import.meta.env.VITE_HEYGEN_VOICEID
+      import.meta.env.VITE_HEYGEN_VOICEID,
+      "Hello My name is 6, your personal assistant. How can I help you today?"
     );
     
     const sessionInfo = sessionResponse.data;
@@ -1517,6 +1518,13 @@ async function grab() {
     // Step 4: Create LiveKit room and prepare connection (80% progress)
     await liveKitService.current.createRoom();
     await liveKitService.current.prepareConnection(sessionInfo.url, sessionInfo.access_token);
+    
+    // Connect WebSocket with custom opening text
+    await liveKitService.current.connectWebSocket(
+      sessionInfo.session_id,
+      sessionToken,
+      "Hello My name is 6, your personal assistant. How can I help you today?"
+    );
     setLoadingProgress(80);
 
     // Step 5: Start streaming session (90% progress)
@@ -1546,23 +1554,7 @@ async function grab() {
       ]).catch(error => {
         console.warn('Background initialization failed:', error);
       });
-    }, 2000); // Wait 2 seconds for avatar to be fully ready
-    
-    // Add initial greeting message after a longer delay to ensure avatar is fully ready
-    setTimeout(async () => {
-      try {
-        console.log('🎭 Avatar greeting: Starting initial greeting...');
-        await sendTextToAvatar(
-          sessionTokenRef.current!,
-          sessionIdRef.current!,
-          "Hello My name is 6, your personal assistant. How can I help you today?",
-          'talk'
-        );
-        console.log('🎭 Avatar greeting: Greeting completed successfully');
-      } catch (error) {
-        console.warn('Initial greeting failed:', error);
-      }
-    }, 3000); // 3 second delay to ensure avatar is fully ready and pre-warm is complete
+    }, 3000); // Wait 2 seconds for avatar to be fully ready
 
   } catch (error: any) {
     console.error('Avatar initialization failed:', error.message);

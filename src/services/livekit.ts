@@ -5,7 +5,7 @@ export interface LiveKitRoom {
   connect: (url: string, token: string) => Promise<void>;
   disconnect: () => void;
   prepareConnection: (url: string, token: string) => Promise<void>;
-  on: (event: string, callback: (data: any) => void) => void;
+  on: (event: string, callback: (data: LiveKitTrack | ArrayBuffer | string) => void) => void;
 }
 
 export interface LiveKitTrack {
@@ -14,7 +14,7 @@ export interface LiveKitTrack {
 }
 
 export interface LiveKitClient {
-  Room: new (config: any) => LiveKitRoom;
+  Room: new (config: unknown) => LiveKitRoom;
   RoomEvent: {
     DataReceived: string;
     TrackSubscribed: string;
@@ -42,6 +42,7 @@ export class LiveKitService {
   private room: LiveKitRoom | null = null;
   private mediaStream: MediaStream | null = null;
   private isConnected = false;
+  private webSocket: WebSocket | null = null;
 
   constructor() {
     this.loadLiveKitClient();
@@ -91,30 +92,40 @@ export class LiveKitService {
     if (!this.room) return;
 
     // Handle room messages
-    this.room.on(window.LivekitClient.RoomEvent.DataReceived, (message) => {
-      const data = new TextDecoder().decode(message);
-      console.log('Room message:', JSON.parse(data));
+    this.room.on(window.LivekitClient.RoomEvent.DataReceived, (data) => {
+      if (data instanceof ArrayBuffer) {
+        const message = new TextDecoder().decode(data);
+        console.log('Room message:', JSON.parse(message));
+      }
     });
 
     // Handle track subscription
-    this.room.on(window.LivekitClient.RoomEvent.TrackSubscribed, (track: LiveKitTrack) => {
-      if (track.kind === 'video' || track.kind === 'audio') {
-        this.mediaStream?.addTrack(track.mediaStreamTrack);
+    this.room.on(window.LivekitClient.RoomEvent.TrackSubscribed, (data) => {
+      if (typeof data === 'object' && 'kind' in data && 'mediaStreamTrack' in data) {
+        const track = data as LiveKitTrack;
+        if (track.kind === 'video' || track.kind === 'audio') {
+          this.mediaStream?.addTrack(track.mediaStreamTrack);
+        }
       }
     });
 
     // Handle track unsubscription
-    this.room.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, (track: LiveKitTrack) => {
-      const mediaTrack = track.mediaStreamTrack;
-      if (mediaTrack) {
-        this.mediaStream?.removeTrack(mediaTrack);
+    this.room.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, (data) => {
+      if (typeof data === 'object' && 'kind' in data && 'mediaStreamTrack' in data) {
+        const track = data as LiveKitTrack;
+        const mediaTrack = track.mediaStreamTrack;
+        if (mediaTrack) {
+          this.mediaStream?.removeTrack(mediaTrack);
+        }
       }
     });
 
     // Handle disconnection
-    this.room.on(window.LivekitClient.RoomEvent.Disconnected, (reason) => {
-      console.log(`Room disconnected: ${reason}`);
-      this.isConnected = false;
+    this.room.on(window.LivekitClient.RoomEvent.Disconnected, (data) => {
+      if (typeof data === 'string') {
+        console.log(`Room disconnected: ${data}`);
+        this.isConnected = false;
+      }
     });
   }
 
@@ -133,10 +144,42 @@ export class LiveKitService {
     this.isConnected = true;
   }
 
+  async connectWebSocket(sessionId: string, sessionToken: string, openingText?: string): Promise<void> {
+    const params = new URLSearchParams({
+      session_id: sessionId,
+      session_token: sessionToken,
+      silence_response: 'false',
+      opening_text: openingText || "Hello My name is 6, your personal assistant. How can I help you today?",
+      stt_language: 'en',
+    });
+
+    const wsUrl = `wss://api.heygen.com/v1/ws/streaming.chat?${params}`;
+
+    this.webSocket = new WebSocket(wsUrl);
+
+    // Handle WebSocket events
+    this.webSocket.addEventListener('message', (event) => {
+      const eventData = JSON.parse(event.data);
+      console.log('Raw WebSocket event:', eventData);
+    });
+
+    this.webSocket.addEventListener('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
+    this.webSocket.addEventListener('close', () => {
+      console.log('WebSocket connection closed');
+    });
+  }
+
   disconnect(): void {
     if (this.room) {
       this.room.disconnect();
       this.isConnected = false;
+    }
+    if (this.webSocket) {
+      this.webSocket.close();
+      this.webSocket = null;
     }
   }
 
